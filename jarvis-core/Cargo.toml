@@ -1,0 +1,9 @@
+[package]
+name = "jarvis-core"
+version = "0.1.0"
+authors = ["ThetaSinner <greatdjonfire@hotmail.co.uk>"]
+edition = "2018"
+
+[dependencies]
+serde = "1.0"
+serde_yaml = "0.8"

@@ -1,0 +1,11 @@
+[package]
+name = "jarvis-cli"
+version = "0.1.0"
+authors = ["ThetaSinner <ThetaSinner@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+jarvis-core = { path = "../jarvis-core" }
+structopt = "0.3"
+colored = "2.0"
+gh-emoji = "1.0"

@@ -1,1 +1,13 @@
-test: value
+api_version: 0.1
+modules:
+  - name: sample-app
+    path: .
+    agents:
+      - name: golang
+        default: true
+        image: golang-build:1.0
+        environment:
+          OPTIMISED_BINARY: true
+    steps:
+      - name: compile and test
+        command: go build .

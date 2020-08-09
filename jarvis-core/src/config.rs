@@ -5,10 +5,35 @@ use crate::config;
 use serde::{Serialize, Deserialize};
 use std::error::Error;
 use serde::export::Formatter;
+use std::collections::HashMap;
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Agent {
+    pub name: String,
+
+    pub default: Option<bool>,
+
+    pub image: String,
+
+    pub environment: Option<HashMap<String, String>>
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Step {
+    pub name: String,
+
+    pub command: String
+}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Module {
-    pub name: String
+    pub name: String,
+
+    pub path: Option<String>,
+
+    pub agents: Option<Vec<Agent>>,
+
+    pub steps: Vec<Step>
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -91,4 +116,3 @@ fn find_project_dir(project_path: &std::path::PathBuf) -> Option<PathBuf> {
 
     return Option::None;
 }
-

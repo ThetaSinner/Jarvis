@@ -5,7 +5,7 @@ modules:
     agents:
       - name: golang
         default: true
-        image: golang-build:1.0
+        image: golang:latest
         environment:
           OPTIMISED_BINARY: true
     steps:

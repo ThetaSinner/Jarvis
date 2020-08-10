@@ -1,10 +1,15 @@
-use jarvis_core::{validate_project};
+use jarvis_core::{validate_project, build_project};
 use structopt::StructOpt;
 use colored::Colorize;
+use std::env::current_dir;
 
 #[derive(StructOpt)]
 /// The Jarvis CLI
 struct Cli {
+    #[structopt(long, parse(from_os_str))]
+    /// The project to use
+    project: Option<std::path::PathBuf>,
+
     #[structopt(subcommand)]
     cmd: SubCommands
 }
@@ -15,6 +20,9 @@ enum SubCommands {
         #[structopt(long, parse(from_os_str))]
         /// The project to use
         project: std::path::PathBuf,
+    },
+
+    Build {
     }
 }
 
@@ -26,6 +34,13 @@ fn main() {
     match args.cmd {
         SubCommands::Validate { project} => {
             exit_code = validate(project);
+        },
+        SubCommands::Build {} => {
+            let project_dir = match args.project {
+                Some(project) => project,
+                None => current_dir().unwrap()
+            };
+            exit_code = build(project_dir)
         }
     }
 
@@ -54,4 +69,9 @@ fn validate(project: std::path::PathBuf) -> i32 {
         println!("{} {}", gh_emoji::get("-1").unwrap(), validation_result.err().unwrap().to_string().bright_red());
         1
     }
+}
+
+fn build(project: std::path::PathBuf) -> i32 {
+    build_project(project);
+    1
 }

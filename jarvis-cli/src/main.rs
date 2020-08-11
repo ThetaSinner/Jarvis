@@ -1,17 +1,14 @@
-use jarvis_core::{validate_project, build_project};
+use jarvis_core::{validate_project, build_project, docker_things};
 use structopt::StructOpt;
 use colored::Colorize;
 use std::env::current_dir;
+use futures::executor::block_on;
 
 #[derive(StructOpt)]
 /// The Jarvis CLI
 struct Cli {
-    #[structopt(long, parse(from_os_str))]
-    /// The project to use
-    project: Option<std::path::PathBuf>,
-
     #[structopt(subcommand)]
-    cmd: SubCommands
+    cmd: SubCommands,
 }
 
 #[derive(StructOpt)]
@@ -19,10 +16,19 @@ enum SubCommands {
     Validate {
         #[structopt(long, parse(from_os_str))]
         /// The project to use
-        project: std::path::PathBuf,
+        project: Option<std::path::PathBuf>
     },
 
     Build {
+        #[structopt(long, parse(from_os_str))]
+        /// The project to use
+        project: Option<std::path::PathBuf>
+    },
+
+    Docker {
+        #[structopt(long, parse(from_os_str))]
+        /// The project to use
+        project: Option<std::path::PathBuf>
     }
 }
 
@@ -32,15 +38,27 @@ fn main() {
     let exit_code ;
 
     match args.cmd {
-        SubCommands::Validate { project} => {
-            exit_code = validate(project);
+        SubCommands::Validate { project } => {
+            let project_dir = match project {
+                Some(project) => project,
+                None => current_dir().unwrap()
+            };
+            exit_code = validate(project_dir);
         },
-        SubCommands::Build {} => {
-            let project_dir = match args.project {
+        SubCommands::Build { project } => {
+            let project_dir = match project {
                 Some(project) => project,
                 None => current_dir().unwrap()
             };
             exit_code = build(project_dir)
+        },
+        SubCommands::Docker { project } => {
+            let project_dir = match project {
+                Some(project) => project,
+                None => current_dir().unwrap()
+            };
+            block_on(docker_things(project_dir));
+            exit_code = 1
         }
     }
 

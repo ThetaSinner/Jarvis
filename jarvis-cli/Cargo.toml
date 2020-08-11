@@ -9,3 +9,4 @@ jarvis-core = { path = "../jarvis-core" }
 structopt = "0.3"
 colored = "2.0"
 gh-emoji = "1.0"
+futures = "0.3"

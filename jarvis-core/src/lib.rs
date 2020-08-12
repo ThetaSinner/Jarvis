@@ -1,16 +1,22 @@
-use crate::config::ConfigError;
-use bollard::Docker;
-use tokio::runtime::Runtime;
-use bollard::volume::CreateVolumeOptions;
 use std::collections::HashMap;
-use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions};
 use std::fs::File;
 use std::io::Read;
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
-use futures_util::stream::TryStreamExt;
 
+use bollard::container::{Config, CreateContainerOptions, StartContainerOptions, UploadToContainerOptions};
+use bollard::Docker;
+use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+use bollard::volume::CreateVolumeOptions;
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use futures_util::stream::TryStreamExt;
+use tokio::runtime::Runtime;
+
+use crate::config::ConfigError;
+use crate::runtime::BuildRuntime;
+use crate::runtime::docker_runtime::DockerRuntime;
+use crate::runtime::k8s_runtime::KubernetesRuntime;
+
+mod runtime;
 mod validate;
 mod config;
 mod build;
@@ -20,11 +26,18 @@ pub fn build_project(project_path: std::path::PathBuf) -> Option<ConfigError> {
 }
 
 pub fn validate_project(project_path: std::path::PathBuf) -> Result<validate::ValidationMessages, validate::ValidationError> {
-    return validate::validate_project(project_path)
+    return validate::validate_project(project_path);
+}
+
+fn runtime_thing(runtime: &impl BuildRuntime) {
+    runtime.test();
 }
 
 pub async fn docker_things(project_path: std::path::PathBuf) {
     let mut rt = Runtime::new().unwrap();
+
+    let runtime = KubernetesRuntime {};
+    runtime_thing(&runtime);
 
     let docker = Docker::connect_with_local_defaults().unwrap();
 
@@ -39,7 +52,7 @@ pub async fn docker_things(project_path: std::path::PathBuf) {
             name: "abc",
             driver: "local",
             driver_opts: Default::default(),
-            labels
+            labels,
         }).await;
 
         match volume_result {
@@ -59,7 +72,7 @@ pub async fn docker_things(project_path: std::path::PathBuf) {
             Ok(result) => {
                 println!("{}", result.id);
                 result.id
-            },
+            }
             Err(e) => {
                 print!("{}", e);
                 return Err("Failed to create container");
@@ -81,11 +94,9 @@ pub async fn docker_things(project_path: std::path::PathBuf) {
             tar.append_dir_all(".", project_path).unwrap();
         }
 
-        {
-            let mut file = File::open("tarball.tar.gz").unwrap();
-            let mut contents = Vec::new();
-            file.read_to_end(&mut contents).unwrap();
-        }
+        let mut file = File::open("tarball.tar.gz").unwrap();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).unwrap();
 
         let options = Some(UploadToContainerOptions {
             path: "/opt",
@@ -110,7 +121,7 @@ pub async fn docker_things(project_path: std::path::PathBuf) {
             Ok(result) => {
                 println!("Created exec {}", result.id);
                 result.id
-            },
+            }
             Err(e) => {
                 println!("Failed to create exec {}", e);
                 return Err("Failed to create exec");
@@ -126,14 +137,14 @@ pub async fn docker_things(project_path: std::path::PathBuf) {
                     match result {
                         StartExecResults::Attached { log } => {
                             println!("{}", log);
-                        },
+                        }
                         StartExecResults::Detached => {
                             println!("Not attached");
                             // Do nothing
                         }
                     }
                 }
-            },
+            }
             Err(e) => {
                 println!("Failed to start exec {}", e)
             }

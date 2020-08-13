@@ -1,6 +1,7 @@
 use crate::config::{get_project_config, ProjectConfig, ConfigError, Module, Agent, Step};
 use std::collections::HashMap;
-use std::borrow::Borrow;
+use crate::runtime::BuildRuntime;
+use std::borrow::BorrowMut;
 
 struct BuildAgentConfig<'a> {
     name: String,
@@ -10,19 +11,21 @@ struct BuildAgentConfig<'a> {
     default_agent: Option<String>,
 }
 
-pub fn build_project(project_path: std::path::PathBuf) -> Option<ConfigError> {
+pub async fn build_project(project_path: std::path::PathBuf, mut runtime: Box<dyn BuildRuntime>) -> Option<ConfigError> {
     let project_config_result = get_project_config(project_path);
+
+    runtime.connect();
 
     match project_config_result {
         Err(e) => Some(e),
         Ok(project_config) => {
-            build_project_with_config(project_config);
+            build_project_with_config(project_config, &mut runtime).await;
             None
         }
     }
 }
 
-fn build_project_with_config(project_config: ProjectConfig) -> Result<String, &'static str> {
+async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut Box<dyn BuildRuntime>) -> Result<String, &'static str> {
     for module in project_config.build_config.modules {
         println!("Building module: {}", module.name);
 
@@ -32,22 +35,28 @@ fn build_project_with_config(project_config: ProjectConfig) -> Result<String, &'
             Err(e) => return Err(e)
         };
 
-        build_module(&module, agent_config);
+        runtime.init_for_module(&module.name).await
+            .map_err(|x| x);
+        build_module(&module, &agent_config, runtime);
     }
 
     Ok("".to_string())
 }
 
-fn build_module(module: &Module, agent_config: BuildAgentConfig) -> Result<String, &'static str> {
+fn build_module(module: &Module, agent_config: &BuildAgentConfig, runtime: &Box<dyn BuildRuntime>) -> Result<String, &'static str> {
     if module.steps.is_empty() {
         return Err("No build steps provided.");
     }
 
-    // for step in module.steps.borrow() {
-    //
-    // }
+    for step in &module.steps {
+        run_step(step, agent_config);
+    }
 
     Ok("".to_string())
+}
+
+fn run_step(step: &Step, agent_config: &BuildAgentConfig) {
+    println!("{}", step.name);
 }
 
 fn configure_agents(module: &Module) -> Result<BuildAgentConfig, &'static str> {

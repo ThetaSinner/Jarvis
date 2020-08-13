@@ -1,8 +1,10 @@
-use jarvis_core::{validate_project, build_project, docker_things};
+use jarvis_core::{validate_project, build_project, docker_things, RuntimeOption};
 use structopt::StructOpt;
 use colored::Colorize;
 use std::env::current_dir;
 use futures::executor::block_on;
+use tokio::runtime::Runtime;
+use futures::future::Ready;
 
 #[derive(StructOpt)]
 /// The Jarvis CLI
@@ -22,7 +24,10 @@ enum SubCommands {
     Build {
         #[structopt(long, parse(from_os_str))]
         /// The project to use
-        project: Option<std::path::PathBuf>
+        project: Option<std::path::PathBuf>,
+
+        #[structopt(long, default_value = "")]
+        runtime: RuntimeOption
     },
 
     Docker {
@@ -37,6 +42,8 @@ fn main() {
 
     let exit_code ;
 
+    let mut rt = Runtime::new().unwrap();
+
     match args.cmd {
         SubCommands::Validate { project } => {
             let project_dir = match project {
@@ -45,12 +52,13 @@ fn main() {
             };
             exit_code = validate(project_dir);
         },
-        SubCommands::Build { project } => {
+        SubCommands::Build { project, runtime } => {
             let project_dir = match project {
                 Some(project) => project,
                 None => current_dir().unwrap()
             };
-            exit_code = build(project_dir)
+            println!("{}", runtime);
+            exit_code = block_on(rt.block_on(build(project_dir, runtime))).unwrap();
         },
         SubCommands::Docker { project } => {
             let project_dir = match project {
@@ -89,7 +97,7 @@ fn validate(project: std::path::PathBuf) -> i32 {
     }
 }
 
-fn build(project: std::path::PathBuf) -> i32 {
-    build_project(project);
-    1
+async fn build(project: std::path::PathBuf, runtime: RuntimeOption) -> Ready<Result<i32, ()>> {
+    build_project(project, runtime).await;
+    futures::future::ok(1)
 }

@@ -22,7 +22,9 @@ pub struct Agent {
 pub struct Step {
     pub name: String,
 
-    pub command: String
+    pub command: String,
+
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -51,7 +53,7 @@ pub struct ProjectConfig {
 
 #[derive(Debug, Clone)]
 pub struct ConfigError {
-    msg: String
+    pub(crate) msg: String
 }
 
 impl fmt::Display for ConfigError {

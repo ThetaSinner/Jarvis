@@ -1,7 +1,6 @@
 use crate::config::{get_project_config, ProjectConfig, ConfigError, Module, Agent, Step};
 use std::collections::HashMap;
 use crate::runtime::BuildRuntime;
-use std::borrow::BorrowMut;
 
 struct BuildAgentConfig<'a> {
     name: String,
@@ -37,26 +36,44 @@ async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut 
 
         runtime.init_for_module(&module.name).await
             .map_err(|x| x);
-        build_module(&module, &agent_config, runtime);
+        build_module(&module, &agent_config, runtime).await;
     }
 
     Ok("".to_string())
 }
 
-fn build_module(module: &Module, agent_config: &BuildAgentConfig, runtime: &Box<dyn BuildRuntime>) -> Result<String, &'static str> {
+async fn build_module<'a>(module: &Module, agent_config: &'a BuildAgentConfig<'a>, runtime: &mut Box<dyn BuildRuntime>) -> Result<String, &'static str> {
     if module.steps.is_empty() {
         return Err("No build steps provided.");
     }
 
     for step in &module.steps {
-        run_step(step, agent_config);
+        run_step(step, &module.name, agent_config, runtime).await;
     }
 
     Ok("".to_string())
 }
 
-fn run_step(step: &Step, agent_config: &BuildAgentConfig) {
+async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildAgentConfig<'a>, runtime: &mut Box<dyn BuildRuntime>) -> Result<(), ConfigError> {
+    let agent = if let Some(ref agent) = step.agent {
+        if agent_config.agents.contains_key(agent) {
+            agent_config.agents[agent]
+        } else {
+            return Err(ConfigError { msg: format!("Step [{}] attempting to use agent [{}] which isn't defined", step.name, agent) });
+        }
+    } else {
+        if let Some(ref agent) = agent_config.default_agent {
+            agent_config.agents[agent]
+        } else {
+            return Err(ConfigError { msg: format!("Step [{}] doesn't specify an agent and there is no default agent", step.name) });
+        }
+    };
+
+    runtime.create_agent(module_name, agent).await
+        .map_err(|e| println!("Failed to create container {}", e));
+
     println!("{}", step.name);
+    Ok(())
 }
 
 fn configure_agents(module: &Module) -> Result<BuildAgentConfig, &'static str> {

@@ -22,6 +22,7 @@ mod runtime;
 mod validate;
 pub mod config;
 mod build;
+mod docker_image_name;
 
 pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption) -> Option<ConfigError> {
     let runtime: Box<dyn BuildRuntime> = match runtime {

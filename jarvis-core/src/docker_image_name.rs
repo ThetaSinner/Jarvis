@@ -24,16 +24,14 @@ pub struct DockerImageName<T> {
 
     name_components: Vec<T>,
 
-    tag: Option<T>,
+    pub tag: Option<T>,
 }
 
 impl TryFrom<String> for DockerImageName<String> {
     type Error = ImageNameError;
 
     fn try_from(image_name: String) -> Result<Self, Self::Error> {
-        let mut components = image_name.split("/").collect::<Vec<&str>>();
-
-        println!("{}", components.len());
+        let components = image_name.split("/").collect::<Vec<&str>>();
 
         match components.len() {
             1 => {

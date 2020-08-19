@@ -1,10 +1,12 @@
-use jarvis_core::{validate_project, build_project, docker_things, RuntimeOption};
-use structopt::StructOpt;
-use colored::Colorize;
 use std::env::current_dir;
+
+use colored::Colorize;
 use futures::executor::block_on;
-use tokio::runtime::Runtime;
 use futures::future::Ready;
+use structopt::StructOpt;
+use tokio::runtime::Runtime;
+
+use jarvis_core::{build_project, docker_things, RuntimeOption, validate_project};
 
 #[derive(StructOpt)]
 /// The Jarvis CLI
@@ -27,20 +29,20 @@ enum SubCommands {
         project: Option<std::path::PathBuf>,
 
         #[structopt(long, default_value = "")]
-        runtime: RuntimeOption
+        runtime: RuntimeOption,
     },
 
     Docker {
         #[structopt(long, parse(from_os_str))]
         /// The project to use
         project: Option<std::path::PathBuf>
-    }
+    },
 }
 
 fn main() {
     let args = Cli::from_args();
 
-    let exit_code ;
+    let exit_code;
 
     let mut rt = Runtime::new().unwrap();
 
@@ -51,7 +53,7 @@ fn main() {
                 None => current_dir().unwrap()
             };
             exit_code = validate(project_dir);
-        },
+        }
         SubCommands::Build { project, runtime } => {
             let project_dir = match project {
                 Some(project) => project,
@@ -59,7 +61,7 @@ fn main() {
             };
             println!("{}", runtime);
             exit_code = block_on(rt.block_on(build(project_dir, runtime))).unwrap();
-        },
+        }
         SubCommands::Docker { project } => {
             let project_dir = match project {
                 Some(project) => project,

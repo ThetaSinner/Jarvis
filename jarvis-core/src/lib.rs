@@ -114,7 +114,7 @@ pub async fn docker_things(project_path: std::path::PathBuf) {
         let upload_result = docker.upload_to_container(container_id.as_str(), options, contents.into()).await;
 
         match upload_result {
-            Ok(result) => println!("Uploaded successfully."),
+            Ok(_) => println!("Uploaded successfully."),
             Err(e) => println!("Failed to upload: {}", e)
         };
 

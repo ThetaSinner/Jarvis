@@ -7,7 +7,7 @@ use bollard::volume::CreateVolumeOptions;
 use async_trait::async_trait;
 
 use crate::config::Agent;
-use bollard::container::{CreateContainerOptions, Config};
+use bollard::container::{CreateContainerOptions, Config, StartContainerOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 use futures::TryStreamExt;
@@ -15,6 +15,7 @@ use bollard::image::{CreateImageOptions, CreateImageResults};
 use tokio::stream::StreamExt;
 use std::io;
 use std::io::Write;
+use bollard::models::{HostConfig, Mount, MountTypeEnum};
 
 pub struct DockerRuntime {
     docker: Option<Docker>,
@@ -55,32 +56,6 @@ impl DockerRuntime {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
     }
-
-    // async fn pull_image(&self, image: &str) -> Result<(), BuildRuntimeError> {
-    //     if let Some(ref docker) = self.docker {
-    //         let pull_results = docker.create_image(Some(CreateImageOptions {
-    //             from_image: image,
-    //             ..Default::default()
-    //         }), None, None).try_collect::<Vec<_>>().await.map_err(|e| {
-    //             BuildRuntimeError { msg: format!("Failed to pull image: {}", e) }
-    //         })?;
-    //
-    //         for result in pull_results {
-    //             match result {
-    //                 CreateImageResults::CreateImageProgressResponse { status, progress_detail, id, progress } => {
-    //                     println!("{}", status)
-    //                 },
-    //                 CreateImageResults::CreateImageError { error, error_detail} => {
-    //                     return Err(BuildRuntimeError { msg: format!("Image pull error: {}", error) })
-    //                 }
-    //             }
-    //         }
-    //
-    //         Ok(())
-    //     } else {
-    //         Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
-    //     }
-    // }
 
     async fn pull_image(&self, image: &str) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
@@ -149,7 +124,7 @@ impl DockerRuntime {
         }
     }
 
-    async fn create_container(&self, name: String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+    async fn create_container(&self, module_component: &String, name: String, agent: &Agent) -> Result<String, BuildRuntimeError> {
         let mut environment = None;
         if let Some(ref env) = agent.environment {
             let env_list = env.keys().map(|key| format!("{}={}", key, env[key])).collect();
@@ -157,10 +132,22 @@ impl DockerRuntime {
         }
 
         if let Some(ref docker) = self.docker {
+            let data_volume = self.module_components.get(module_component.as_str()).unwrap().build_data_volume.as_str();
+            
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
                 cmd: Some(vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect()),
                 env: environment,
+                working_dir: Some("/build".to_string()),
+                host_config: Some(HostConfig {
+                    mounts: Some(vec![Mount {
+                        target: Some("/build".to_string()),
+                        source: Some(data_volume.clone().to_string()),
+                        _type: Some(MountTypeEnum::VOLUME),
+                        ..Default::default()
+                    }]),
+                    ..Default::default()
+                }),
                 ..Default::default()
             }).await;
 
@@ -170,6 +157,17 @@ impl DockerRuntime {
                 }
                 x.id
             }).map_err(|e| BuildRuntimeError { msg: format!("Failed to create container: {}", e) })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn start_container(&self, name: &str) -> Result<(), BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            docker.start_container(name, None::<StartContainerOptions<String>>).await
+                .map_err(|e| {
+                    BuildRuntimeError { msg: format!("Failed to start container: {}", e) }
+                })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -215,11 +213,13 @@ impl BuildRuntime for DockerRuntime {
 
         self.pull_image(agent.image.as_str()).await?;
 
-        self.create_container(name, agent).await
+        self.create_container(module_name, name, agent).await
             .map(|x| {
                 let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
                 component.containers.insert(agent.name.clone(), x);
                 ()
-            })
+            })?;
+
+        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await
     }
 }

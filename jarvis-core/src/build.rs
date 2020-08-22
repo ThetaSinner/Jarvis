@@ -25,7 +25,7 @@ pub async fn build_project(project_path: std::path::PathBuf, mut runtime: Box<dy
 }
 
 async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut Box<dyn BuildRuntime>) -> Result<String, &'static str> {
-    for module in project_config.build_config.modules {
+    for module in &project_config.build_config.modules {
         println!("Building module: {}", module.name);
 
         let build_agent_config_result = configure_agents(&module);
@@ -34,7 +34,7 @@ async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut 
             Err(e) => return Err(e)
         };
 
-        runtime.init_for_module(&module.name).await
+        runtime.init_for_module(&module.name, &project_config).await
             .map_err(|x| x);
         build_module(&module, &agent_config, runtime).await;
     }

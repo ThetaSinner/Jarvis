@@ -6,16 +6,20 @@ use crypto::digest::Digest;
 use bollard::volume::CreateVolumeOptions;
 use async_trait::async_trait;
 
-use crate::config::Agent;
-use bollard::container::{CreateContainerOptions, Config, StartContainerOptions};
+use crate::config::{Agent, ProjectConfig};
+use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 use futures::TryStreamExt;
 use bollard::image::{CreateImageOptions, CreateImageResults};
 use tokio::stream::StreamExt;
-use std::io;
-use std::io::Write;
+use std::{io, env};
+use std::io::{Write, Read};
 use bollard::models::{HostConfig, Mount, MountTypeEnum};
+use std::path::PathBuf;
+use std::fs::File;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 pub struct DockerRuntime {
     docker: Option<Docker>,
@@ -124,7 +128,7 @@ impl DockerRuntime {
         }
     }
 
-    async fn create_container(&self, module_component: &String, name: String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+    async fn create_container(&self, module_component: &str, name: &str, agent: &Agent) -> Result<String, BuildRuntimeError> {
         let mut environment = None;
         if let Some(ref env) = agent.environment {
             let env_list = env.keys().map(|key| format!("{}={}", key, env[key])).collect();
@@ -132,7 +136,8 @@ impl DockerRuntime {
         }
 
         if let Some(ref docker) = self.docker {
-            let data_volume = self.module_components.get(module_component.as_str()).unwrap().build_data_volume.as_str();
+            println!("{} {}", module_component, self.module_components.contains_key(module_component));
+            let data_volume = self.module_components.get(module_component).unwrap().build_data_volume.as_str();
             
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
@@ -172,6 +177,65 @@ impl DockerRuntime {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
     }
+
+    async fn upload_project(&self, container_id: &str, project_directory: &PathBuf) -> Result<(), BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let id: String = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(30)
+                .collect();
+
+            let mut bundle_path = env::temp_dir();
+            bundle_path.push(format!("jarvis-bundle-{}.tgz", id));
+
+            {
+                let tar_gz = File::create(&bundle_path).unwrap();
+                let enc = GzEncoder::new(tar_gz, Compression::default());
+                let mut tar = tar::Builder::new(enc);
+                tar.append_dir_all(".", project_directory).unwrap();
+            }
+
+            let mut file = File::open(&bundle_path).unwrap();
+            let mut contents = Vec::new();
+            file.read_to_end(&mut contents).unwrap();
+
+            let options = Some(UploadToContainerOptions {
+                path: "/build",
+                ..Default::default()
+            });
+
+            let upload_result = docker.upload_to_container(container_id, options, contents.into()).await;
+
+            std::fs::remove_file(bundle_path);
+
+            upload_result.map_err(|e| {
+                BuildRuntimeError { msg: format!("Error uploading build bundle: {}", e) }
+            })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn create_agent_internal(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+        let id: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .collect();
+        let name = format!("jarvis-agent-{}-{}-{}", module_name, agent.name, id);
+
+        self.pull_image(agent.image.as_str()).await?;
+
+        self.create_container(module_name, name.as_str(), agent).await
+            .map(|x| {
+                let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
+                component.containers.insert(agent.name.clone(), x);
+                ()
+            })?;
+
+        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await;
+
+        Ok(name.clone())
+    }
 }
 
 #[async_trait]
@@ -184,7 +248,7 @@ impl BuildRuntime for DockerRuntime {
         self.docker = Some(Docker::connect_with_local_defaults().unwrap())
     }
 
-    async fn init_for_module(&mut self, module_name: &String) -> Result<(), BuildRuntimeError> {
+    async fn init_for_module(&mut self, module_name: &String, project_config: &ProjectConfig) -> Result<(), BuildRuntimeError> {
         let mut hasher = Sha256::new();
         hasher.input_str("build_data_volume-");
         hasher.input_str(module_name);
@@ -195,31 +259,23 @@ impl BuildRuntime for DockerRuntime {
 
         self.module_components.insert(module_name.to_string(), Box::new(module_components));
 
-        return self.create_docker_volume(&hasher.result_str()).await
+        self.create_docker_volume(&hasher.result_str()).await
             .map(|x| {
                 println!("Created build data volume: {}", x);
                 ()
-            });
+            })?;
+
+        let init_agent = self.create_agent_internal(module_name, &Agent {
+            name: "jarvis-init".to_string(),
+            default: None,
+            image: "alpine:latest".to_string(),
+            environment: None
+        }).await?;
+
+        self.upload_project(init_agent.as_str(), &project_config.project_directory).await
     }
 
     async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<(), BuildRuntimeError> {
-        let id: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .collect();
-        let name = format!("jarvis-agent-{}-{}-{}", module_name, agent.name, id);
-
-        println!("Create agent {}", name);
-
-        self.pull_image(agent.image.as_str()).await?;
-
-        self.create_container(module_name, name, agent).await
-            .map(|x| {
-                let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
-                component.containers.insert(agent.name.clone(), x);
-                ()
-            })?;
-
-        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await
+        self.create_agent_internal(module_name, agent).await.map(|_| ())
     }
 }

@@ -20,7 +20,11 @@ impl BuildRuntime for KubernetesRuntime {
         unimplemented!()
     }
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<(), BuildRuntimeError> {
+    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+        unimplemented!()
+    }
+
+    async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
 }

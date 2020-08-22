@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::fs::File;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 
 pub struct DockerRuntime {
     docker: Option<Docker>,
@@ -30,7 +31,7 @@ pub struct DockerRuntime {
 struct ModuleComponents {
     build_data_volume: String,
 
-    containers: HashMap<String, String>
+    containers: HashMap<String, String>,
 }
 
 impl DockerRuntime {
@@ -106,17 +107,17 @@ impl DockerRuntime {
                                 }
 
                                 io::stdout().flush();
-                            },
+                            }
                             CreateImageResults::CreateImageError { error_detail, error } => {
                                 print!("\n{}", ansi_escapes::CursorShow);
                                 println!("{}", error);
-                                return Err(BuildRuntimeError { msg: format!("Image pull error: {}", error) })
+                                return Err(BuildRuntimeError { msg: format!("Image pull error: {}", error) });
                             }
                         }
-                    },
+                    }
                     Err(e) => {
                         print!("\n{}", ansi_escapes::CursorShow);
-                        return Err(BuildRuntimeError { msg: format!("Image pull error: {}", e) })
+                        return Err(BuildRuntimeError { msg: format!("Image pull error: {}", e) });
                     }
                 }
             }
@@ -138,7 +139,7 @@ impl DockerRuntime {
         if let Some(ref docker) = self.docker {
             println!("{} {}", module_component, self.module_components.contains_key(module_component));
             let data_volume = self.module_components.get(module_component).unwrap().build_data_volume.as_str();
-            
+
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
                 cmd: Some(vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect()),
@@ -216,25 +217,36 @@ impl DockerRuntime {
         }
     }
 
-    async fn create_agent_internal(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
-        let id: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .collect();
-        let name = format!("jarvis-agent-{}-{}-{}", module_name, agent.name, id);
+    async fn execute_command_internal(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let exec_id = docker.create_exec(agent_id, CreateExecOptions {
+                cmd: Some(vec!["/bin/sh", "-c", command]),
+                attach_stdout: Some(true),
+                working_dir: Some("/build"),
+                ..Default::default()
+            }).await
+                .map(|exec| exec.id)
+                .map_err(|e| BuildRuntimeError { msg: format!("Failed to create exec: {}", e) })
+                ?;
 
-        self.pull_image(agent.image.as_str()).await?;
-
-        self.create_container(module_name, name.as_str(), agent).await
-            .map(|x| {
-                let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
-                component.containers.insert(agent.name.clone(), x);
-                ()
-            })?;
-
-        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await;
-
-        Ok(name.clone())
+            docker.start_exec(&exec_id, None::<StartExecOptions>).try_collect::<Vec<_>>().await
+                .map(|results| {
+                    for result in results {
+                        match result {
+                            StartExecResults::Attached { log } => {
+                                println!("{}", log);
+                            }
+                            StartExecResults::Detached => {
+                                println!("Not attached");
+                                // Do nothing
+                            }
+                        }
+                    }
+                })
+                .map_err(|e| BuildRuntimeError { msg: format!("Error running command: {}", e) })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
     }
 }
 
@@ -254,7 +266,7 @@ impl BuildRuntime for DockerRuntime {
         hasher.input_str(module_name);
         let module_components = ModuleComponents {
             build_data_volume: hasher.result_str(),
-            containers: HashMap::new()
+            containers: HashMap::new(),
         };
 
         self.module_components.insert(module_name.to_string(), Box::new(module_components));
@@ -265,17 +277,38 @@ impl BuildRuntime for DockerRuntime {
                 ()
             })?;
 
-        let init_agent = self.create_agent_internal(module_name, &Agent {
+        let init_agent = self.create_agent(module_name, &Agent {
             name: "jarvis-init".to_string(),
             default: None,
             image: "alpine:latest".to_string(),
-            environment: None
+            environment: None,
         }).await?;
 
         self.upload_project(init_agent.as_str(), &project_config.project_directory).await
     }
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<(), BuildRuntimeError> {
-        self.create_agent_internal(module_name, agent).await.map(|_| ())
+    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+        let id: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .collect();
+        let name = format!("jarvis-agent-{}-{}-{}", module_name, agent.name, id);
+
+        self.pull_image(agent.image.as_str()).await?;
+
+        self.create_container(module_name, name.as_str(), agent).await
+            .map(|x| {
+                let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
+                component.containers.insert(agent.name.clone(), x);
+                ()
+            })?;
+
+        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await;
+
+        Ok(name.clone())
+    }
+
+    async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
+        self.execute_command_internal(agent_id, command).await
     }
 }

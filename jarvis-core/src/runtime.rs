@@ -15,7 +15,9 @@ pub trait BuildRuntime {
 
     async fn init_for_module(&mut self, module_name: &String, project_config: &ProjectConfig) -> Result<(), BuildRuntimeError>;
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<(), BuildRuntimeError>;
+    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError>;
+
+    async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError>;
 }
 
 #[derive(Debug, Clone)]

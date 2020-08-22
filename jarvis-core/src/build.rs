@@ -69,8 +69,10 @@ async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildA
         }
     };
 
-    runtime.create_agent(module_name, agent).await
-        .map_err(|e| println!("Failed to create container {}", e));
+    let agent_id = runtime.create_agent(module_name, agent).await
+        .map_err(|e| println!("Failed to create container {}", e)).unwrap();
+
+    runtime.execute_command(agent_id.as_str(), &step.command).await;
 
     println!("{}", step.name);
     Ok(())

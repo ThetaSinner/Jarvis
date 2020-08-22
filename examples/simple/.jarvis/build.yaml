@@ -8,6 +8,11 @@ modules:
         image: golang:latest
         environment:
           OPTIMISED_BINARY: true
+      - name: alpine
+        image: alpine:latest
     steps:
-      - name: compile and test
-        command: go build .
+      - name: build
+        command: go build
+      - name: test
+        agent: alpine
+        command: ./main

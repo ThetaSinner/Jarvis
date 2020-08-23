@@ -1,14 +1,11 @@
-use crate::config::{get_project_config, ProjectConfig, ConfigError, Module, Agent, Step};
+use crate::config::{get_project_config, ProjectConfig, Module, Agent, Step};
 use std::collections::HashMap;
 use crate::runtime::{BuildRuntime, BuildRuntimeError};
 use std::fmt;
 use std::fmt::Formatter;
 use std::error::Error;
-use bollard::image::BuildImageResults::BuildImageError;
 
 struct BuildAgentConfig<'a> {
-    name: String,
-
     agents: HashMap<String, &'a Agent>,
 
     default_agent: Option<String>,
@@ -100,7 +97,6 @@ fn run_step_error(step_name: &str, bre: BuildRuntimeError) -> BuildError {
 
 fn configure_agents(module: &Module) -> Result<BuildAgentConfig, &'static str> {
     let mut build_model = BuildAgentConfig {
-        name: module.name.clone(),
         agents: HashMap::new(),
         default_agent: None,
     };

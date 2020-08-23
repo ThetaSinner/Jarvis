@@ -1,16 +1,3 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
-
-use bollard::container::{Config, CreateContainerOptions, StartContainerOptions, UploadToContainerOptions};
-use bollard::Docker;
-use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
-use bollard::volume::CreateVolumeOptions;
-use flate2::Compression;
-use flate2::write::GzEncoder;
-use futures_util::stream::TryStreamExt;
-use tokio::runtime::Runtime;
-
 use crate::config::ConfigError;
 use crate::runtime::BuildRuntime;
 use crate::runtime::docker_runtime::DockerRuntime;
@@ -23,7 +10,6 @@ mod runtime;
 mod validate;
 pub mod config;
 mod build;
-mod docker_image_name;
 
 pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption) -> Result<(), BuildError> {
     let runtime: Box<dyn BuildRuntime> = match runtime {

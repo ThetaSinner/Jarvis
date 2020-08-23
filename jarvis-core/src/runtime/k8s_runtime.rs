@@ -16,23 +16,23 @@ impl BuildRuntime for KubernetesRuntime {
         unimplemented!()
     }
 
-    async fn init_for_module(&mut self, module_name: &String, project_config: &ProjectConfig) -> Result<(), BuildRuntimeError> {
+    async fn init_for_module(&mut self, _module_name: &String, _project_config: &ProjectConfig) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+    async fn create_agent(&mut self, _module_name: &String, _agent: &Agent) -> Result<String, BuildRuntimeError> {
         unimplemented!()
     }
 
-    async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
+    async fn execute_command(&mut self, _agent_id: &str, _command: &str) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
 
-    async fn destroy_agent(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {
+    async fn destroy_agent(&mut self, _agent_id: &str) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
 
-    async fn tear_down_for_module(&self, module_name: &String) -> Result<(), BuildRuntimeError> {
+    async fn tear_down_for_module(&self, _module_name: &String) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
 }

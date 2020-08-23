@@ -75,7 +75,7 @@ impl DockerRuntime {
                 match pull_result {
                     Ok(create_result) => {
                         match create_result {
-                            CreateImageResults::CreateImageProgressResponse { status, progress_detail, id, progress } => {
+                            CreateImageResults::CreateImageProgressResponse { status, progress_detail: _progress_detail, id, progress } => {
                                 if let Some(layer_id) = id {
                                     if !layer_id_line_numbers.contains_key(layer_id.as_str()) {
                                         layer_id_line_numbers.insert(layer_id.clone(), layer_id_line_numbers.len() + 1);
@@ -106,9 +106,9 @@ impl DockerRuntime {
                                     print!("\n{}", progress_msg)
                                 }
 
-                                io::stdout().flush();
+                                io::stdout().flush().unwrap();
                             }
-                            CreateImageResults::CreateImageError { error_detail, error } => {
+                            CreateImageResults::CreateImageError { error_detail: _error_detail, error } => {
                                 print!("\n{}", ansi_escapes::CursorShow);
                                 println!("{}", error);
                                 return Err(BuildRuntimeError { msg: format!("Image pull error: {}", error) });
@@ -206,7 +206,7 @@ impl DockerRuntime {
 
             let upload_result = docker.upload_to_container(container_id, options, contents.into()).await;
 
-            std::fs::remove_file(bundle_path);
+            std::fs::remove_file(bundle_path).unwrap();
 
             upload_result.map_err(|e| {
                 BuildRuntimeError { msg: format!("Error uploading build bundle: {}", e) }
@@ -331,7 +331,7 @@ impl BuildRuntime for DockerRuntime {
                 ()
             })?;
 
-        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await;
+        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await?;
 
         Ok(name.clone())
     }

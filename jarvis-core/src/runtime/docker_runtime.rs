@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use crypto::sha2::Sha256;
 use bollard::Docker;
 use crypto::digest::Digest;
-use bollard::volume::CreateVolumeOptions;
+use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions};
 use async_trait::async_trait;
 
 use crate::config::{Agent, ProjectConfig};
-use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions};
+use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 use futures::TryStreamExt;
@@ -248,6 +248,33 @@ impl DockerRuntime {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
     }
+
+    async fn delete_container(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let options = Some(RemoveContainerOptions{
+                force: true,
+                ..Default::default()
+            });
+
+            docker.remove_container(agent_id, options).await
+                .map_err(|e| BuildRuntimeError { msg: format!("Failed to remove container [{}]: {}", agent_id, e) })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn delete_volume(&self, volume_id: &str) -> Result<(), BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let options = RemoveVolumeOptions {
+                force: false,
+            };
+
+             docker.remove_volume(volume_id, Some(options)).await
+                 .map_err(|e| BuildRuntimeError { msg: format!("Error removing volume [{}]: {}", volume_id, e) })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
 }
 
 #[async_trait]
@@ -284,7 +311,9 @@ impl BuildRuntime for DockerRuntime {
             environment: None,
         }).await?;
 
-        self.upload_project(init_agent.as_str(), &project_config.project_directory).await
+        self.upload_project(init_agent.as_str(), &project_config.project_directory).await?;
+
+        self.delete_container(init_agent.as_str()).await
     }
 
     async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
@@ -310,5 +339,13 @@ impl BuildRuntime for DockerRuntime {
 
     async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
         self.execute_command_internal(agent_id, command).await
+    }
+
+    async fn destroy_agent(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {
+        self.delete_container(agent_id).await
+    }
+
+    async fn tear_down_for_module(&self, module_name: &String) -> Result<(), BuildRuntimeError> {
+        self.delete_volume(self.module_components.get(module_name).unwrap().build_data_volume.as_str()).await
     }
 }

@@ -27,4 +27,12 @@ impl BuildRuntime for KubernetesRuntime {
     async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
+
+    async fn destroy_agent(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {
+        unimplemented!()
+    }
+
+    async fn tear_down_for_module(&self, module_name: &String) -> Result<(), BuildRuntimeError> {
+        unimplemented!()
+    }
 }

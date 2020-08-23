@@ -18,6 +18,10 @@ pub trait BuildRuntime {
     async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError>;
 
     async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError>;
+
+    async fn destroy_agent(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError>;
+
+    async fn tear_down_for_module(&self, module_name: &String) -> Result<(), BuildRuntimeError>;
 }
 
 #[derive(Debug, Clone)]

@@ -34,9 +34,9 @@ async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut 
             Err(e) => return Err(e)
         };
 
-        runtime.init_for_module(&module.name, &project_config).await
-            .map_err(|x| x);
+        runtime.init_for_module(&module.name, &project_config).await;
         build_module(&module, &agent_config, runtime).await;
+        runtime.tear_down_for_module(&module.name).await;
     }
 
     Ok("".to_string())
@@ -73,6 +73,8 @@ async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildA
         .map_err(|e| println!("Failed to create container {}", e)).unwrap();
 
     runtime.execute_command(agent_id.as_str(), &step.command).await;
+
+    runtime.destroy_agent(agent_id.as_str()).await;
 
     println!("{}", step.name);
     Ok(())

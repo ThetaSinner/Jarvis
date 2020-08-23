@@ -6,7 +6,7 @@ use futures::future::Ready;
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
-use jarvis_core::{build_project, docker_things, RuntimeOption, validate_project};
+use jarvis_core::{build_project, RuntimeOption, validate_project};
 
 #[derive(StructOpt)]
 /// The Jarvis CLI
@@ -30,12 +30,6 @@ enum SubCommands {
 
         #[structopt(long, default_value = "")]
         runtime: RuntimeOption,
-    },
-
-    Docker {
-        #[structopt(long, parse(from_os_str))]
-        /// The project to use
-        project: Option<std::path::PathBuf>
     },
 }
 
@@ -61,14 +55,6 @@ fn main() {
             };
             println!("{}", runtime);
             exit_code = block_on(rt.block_on(build(project_dir, runtime))).unwrap();
-        }
-        SubCommands::Docker { project } => {
-            let project_dir = match project {
-                Some(project) => project,
-                None => current_dir().unwrap()
-            };
-            block_on(docker_things(project_dir));
-            exit_code = 1
         }
     }
 

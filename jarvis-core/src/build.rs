@@ -1,6 +1,10 @@
 use crate::config::{get_project_config, ProjectConfig, ConfigError, Module, Agent, Step};
 use std::collections::HashMap;
-use crate::runtime::BuildRuntime;
+use crate::runtime::{BuildRuntime, BuildRuntimeError};
+use std::fmt;
+use std::fmt::Formatter;
+use std::error::Error;
+use bollard::image::BuildImageResults::BuildImageError;
 
 struct BuildAgentConfig<'a> {
     name: String,
@@ -10,74 +14,88 @@ struct BuildAgentConfig<'a> {
     default_agent: Option<String>,
 }
 
-pub async fn build_project(project_path: std::path::PathBuf, mut runtime: Box<dyn BuildRuntime>) -> Option<ConfigError> {
-    let project_config_result = get_project_config(project_path);
+#[derive(Debug, Clone)]
+pub struct BuildError {
+    msg: String
+}
+
+impl fmt::Display for BuildError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "build runtime error: {}", self.msg)
+    }
+}
+
+impl Error for BuildError {}
+
+pub async fn build_project(project_path: std::path::PathBuf, mut runtime: Box<dyn BuildRuntime>) -> Result<(), BuildError> {
+    let project_config = get_project_config(project_path)
+        .map_err(|e| BuildError { msg: format!("Project configuration error: {}", e) })?;
 
     runtime.connect();
 
-    match project_config_result {
-        Err(e) => Some(e),
-        Ok(project_config) => {
-            build_project_with_config(project_config, &mut runtime).await;
-            None
-        }
-    }
+    build_project_with_config(project_config, &mut runtime).await
 }
 
-async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut Box<dyn BuildRuntime>) -> Result<String, &'static str> {
+async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut Box<dyn BuildRuntime>) -> Result<(), BuildError> {
     for module in &project_config.build_config.modules {
         println!("Building module: {}", module.name);
 
-        let build_agent_config_result = configure_agents(&module);
-        let agent_config = match build_agent_config_result {
-            Ok(build_agent_config) => build_agent_config,
-            Err(e) => return Err(e)
-        };
+        let agent_config = configure_agents(&module)
+            .map_err(|e| {
+                BuildError { msg: format!("Error configuring agents: {}", e) }
+            })?;
 
-        runtime.init_for_module(&module.name, &project_config).await;
-        build_module(&module, &agent_config, runtime).await;
-        runtime.tear_down_for_module(&module.name).await;
+        runtime.init_for_module(&module.name, &project_config).await.map_err(build_project_error)?;
+        build_module(&module, &agent_config, runtime).await?;
+        runtime.tear_down_for_module(&module.name).await.map_err(build_project_error)?;
     }
 
-    Ok("".to_string())
+    Ok(())
 }
 
-async fn build_module<'a>(module: &Module, agent_config: &'a BuildAgentConfig<'a>, runtime: &mut Box<dyn BuildRuntime>) -> Result<String, &'static str> {
+fn build_project_error(bre: BuildRuntimeError) -> BuildError {
+    BuildError { msg: format!("Failed to build project: {}", bre) }
+}
+
+async fn build_module<'a>(module: &Module, agent_config: &'a BuildAgentConfig<'a>, runtime: &mut Box<dyn BuildRuntime>) -> Result<(), BuildError> {
     if module.steps.is_empty() {
-        return Err("No build steps provided.");
+        return Err(BuildError { msg: "No build steps provided.".to_string() });
     }
 
     for step in &module.steps {
-        run_step(step, &module.name, agent_config, runtime).await;
+        run_step(step, &module.name, agent_config, runtime).await?;
     }
 
-    Ok("".to_string())
+    Ok(())
 }
 
-async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildAgentConfig<'a>, runtime: &mut Box<dyn BuildRuntime>) -> Result<(), ConfigError> {
+async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildAgentConfig<'a>, runtime: &mut Box<dyn BuildRuntime>) -> Result<(), BuildError> {
     let agent = if let Some(ref agent) = step.agent {
         if agent_config.agents.contains_key(agent) {
             agent_config.agents[agent]
         } else {
-            return Err(ConfigError { msg: format!("Step [{}] attempting to use agent [{}] which isn't defined", step.name, agent) });
+            return Err(BuildError { msg: format!("Step [{}] attempting to use agent [{}] which isn't defined", step.name, agent) });
         }
     } else {
         if let Some(ref agent) = agent_config.default_agent {
             agent_config.agents[agent]
         } else {
-            return Err(ConfigError { msg: format!("Step [{}] doesn't specify an agent and there is no default agent", step.name) });
+            return Err(BuildError { msg: format!("Step [{}] doesn't specify an agent and there is no default agent", step.name) });
         }
     };
 
     let agent_id = runtime.create_agent(module_name, agent).await
-        .map_err(|e| println!("Failed to create container {}", e)).unwrap();
+        .map_err(|e| run_step_error(step.name.as_str(), e))?;
 
-    runtime.execute_command(agent_id.as_str(), &step.command).await;
+    runtime.execute_command(agent_id.as_str(), &step.command).await
+        .map_err(|e| run_step_error(step.name.as_str(), e))?;
 
-    runtime.destroy_agent(agent_id.as_str()).await;
+    runtime.destroy_agent(agent_id.as_str()).await
+        .map_err(|e| run_step_error(step.name.as_str(), e))
+}
 
-    println!("{}", step.name);
-    Ok(())
+fn run_step_error(step_name: &str, bre: BuildRuntimeError) -> BuildError {
+    BuildError { msg: format!("Failed to run step [{}]: {}", step_name, bre) }
 }
 
 fn configure_agents(module: &Module) -> Result<BuildAgentConfig, &'static str> {

@@ -137,7 +137,6 @@ impl DockerRuntime {
         }
 
         if let Some(ref docker) = self.docker {
-            println!("{} {}", module_component, self.module_components.contains_key(module_component));
             let data_volume = self.module_components.get(module_component).unwrap().build_data_volume.as_str();
 
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {

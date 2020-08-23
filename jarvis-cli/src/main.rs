@@ -53,7 +53,7 @@ fn main() {
                 Some(project) => project,
                 None => current_dir().unwrap()
             };
-            println!("{}", runtime);
+            println!("Using runtime {}", runtime);
             exit_code = block_on(rt.block_on(build(project_dir, runtime))).unwrap();
         }
     }
@@ -86,6 +86,13 @@ fn validate(project: std::path::PathBuf) -> i32 {
 }
 
 async fn build(project: std::path::PathBuf, runtime: RuntimeOption) -> Ready<Result<i32, ()>> {
-    build_project(project, runtime).await;
-    futures::future::ok(1)
+    let result = build_project(project, runtime).await;
+
+    match result {
+        Ok(_) => futures::future::ok(1),
+        Err(e) => {
+            println!("Build error: {}", e);
+            futures::future::ok(0)
+        }
+    }
 }

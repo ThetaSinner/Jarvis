@@ -17,6 +17,7 @@ use crate::runtime::docker_runtime::DockerRuntime;
 use crate::runtime::k8s_runtime::KubernetesRuntime;
 use futures_util::core_reexport::fmt::Formatter;
 use std::fmt;
+use crate::build::BuildError;
 
 mod runtime;
 mod validate;
@@ -24,14 +25,14 @@ pub mod config;
 mod build;
 mod docker_image_name;
 
-pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption) -> Option<ConfigError> {
+pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption) -> Result<(), BuildError> {
     let runtime: Box<dyn BuildRuntime> = match runtime {
         RuntimeOption::Docker => Box::new(DockerRuntime::new() ),
         RuntimeOption::Kubernetes => Box::new(KubernetesRuntime {}),
         RuntimeOption::None => Box::new(DockerRuntime::new() )
     };
 
-    return build::build_project(project_path, runtime).await;
+    build::build_project(project_path, runtime).await
 }
 
 pub fn validate_project(project_path: std::path::PathBuf) -> Result<validate::ValidationMessages, validate::ValidationError> {

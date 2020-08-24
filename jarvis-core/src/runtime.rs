@@ -9,8 +9,6 @@ pub mod k8s_runtime;
 
 #[async_trait]
 pub trait BuildRuntime {
-    fn test(&self);
-
     fn connect(&mut self);
 
     async fn init_for_module(&mut self, module_name: &String, project_config: &ProjectConfig) -> Result<(), BuildRuntimeError>;

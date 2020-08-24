@@ -8,10 +8,6 @@ pub struct KubernetesRuntime {
 
 #[async_trait]
 impl BuildRuntime for KubernetesRuntime {
-    fn test(&self) {
-        println!("I'm the kubernetes runtime");
-    }
-
     fn connect(&mut self) {
         unimplemented!()
     }

@@ -278,10 +278,6 @@ impl DockerRuntime {
 
 #[async_trait]
 impl BuildRuntime for DockerRuntime {
-    fn test(&self) {
-        println!("I'm the docker runtime");
-    }
-
     fn connect(&mut self) {
         self.docker = Some(Docker::connect_with_local_defaults().unwrap())
     }

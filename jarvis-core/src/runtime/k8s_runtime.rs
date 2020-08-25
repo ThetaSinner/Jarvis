@@ -31,4 +31,8 @@ impl BuildRuntime for KubernetesRuntime {
     async fn tear_down_for_module(&self, _module_name: &String) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
+
+    async fn cleanup_resources(&self) -> Result<(), BuildRuntimeError> {
+        unimplemented!()
+    }
 }

@@ -8,7 +8,7 @@ use futures::future::Ready;
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
-use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter};
+use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter, cleanup_resources};
 use crate::cli_output_formatter::CliOutputFormatter;
 
 #[derive(StructOpt)]
@@ -34,6 +34,11 @@ enum SubCommands {
         #[structopt(long, default_value = "")]
         runtime: RuntimeOption,
     },
+
+    Cleanup {
+        #[structopt(long, default_value = "")]
+        runtime: RuntimeOption,
+    }
 }
 
 fn main() {
@@ -58,6 +63,10 @@ fn main() {
                 None => current_dir().unwrap()
             };
             exit_code = block_on(rt.block_on(build(project_dir, runtime, cli_output_formatter))).unwrap();
+        },
+        SubCommands::Cleanup { runtime } => {
+            let cli_output_formatter = Box::new(CliOutputFormatter {});
+            exit_code = block_on(rt.block_on(cleanup(runtime, cli_output_formatter))).unwrap();
         }
     }
 
@@ -90,7 +99,7 @@ fn validate(project: std::path::PathBuf) -> i32 {
 
 async fn build(project: std::path::PathBuf, runtime: RuntimeOption, output_formatter: Box<dyn OutputFormatter>) -> Ready<Result<i32, ()>> {
     let result = build_project(project, runtime, &output_formatter).await;
-    
+
     match result {
         Ok(_) => {
             output_formatter.success("Project build succeeded".to_string());
@@ -98,6 +107,21 @@ async fn build(project: std::path::PathBuf, runtime: RuntimeOption, output_forma
         },
         Err(e) => {
             output_formatter.error(format!("Project build failed: {}", e));
+            futures::future::ok(0)
+        }
+    }
+}
+
+async fn cleanup(runtime: RuntimeOption, output_formatter: Box<dyn OutputFormatter>) -> Ready<Result<i32, ()>> {
+    let result = cleanup_resources(runtime, &output_formatter).await;
+
+    match result {
+        Ok(_) => {
+            output_formatter.success("Cleanup succeeded".to_string());
+            futures::future::ok(1)
+        },
+        Err(e) => {
+            output_formatter.error(format!("Cleanup failed: {}", e));
             futures::future::ok(0)
         }
     }

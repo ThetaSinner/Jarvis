@@ -1,13 +1,11 @@
 use crate::runtime::{BuildRuntime, BuildRuntimeError};
 use std::collections::HashMap;
-use crypto::sha2::Sha256;
 use bollard::Docker;
-use crypto::digest::Digest;
-use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions};
+use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions, ListVolumesOptions};
 use async_trait::async_trait;
 
 use crate::config::{Agent, ProjectConfig};
-use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions};
+use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 use futures::TryStreamExt;
@@ -21,6 +19,7 @@ use std::fs::File;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+use chrono::Utc;
 
 pub struct DockerRuntime {
     docker: Option<Docker>,
@@ -42,13 +41,15 @@ impl DockerRuntime {
         }
     }
 
-    async fn create_docker_volume(&self, id: &String) -> Result<String, BuildRuntimeError> {
+    async fn create_docker_volume(&self, id: &str) -> Result<String, BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
+            let time = Utc::now().to_rfc3339();
             let mut labels = HashMap::new();
             labels.insert("created-by", "jarvis");
+            labels.insert("build-time", time.as_str());
 
             let volume_result = docker.create_volume(CreateVolumeOptions {
-                name: id.as_str(),
+                name: id,
                 driver: "local",
                 driver_opts: Default::default(),
                 labels,
@@ -137,12 +138,18 @@ impl DockerRuntime {
         }
 
         if let Some(ref docker) = self.docker {
+            let time = Utc::now().to_rfc3339();
+            let mut labels = HashMap::new();
+            labels.insert("created-by".to_string(), "jarvis".to_string());
+            labels.insert("build-time".to_string(), time);
+
             let data_volume = self.module_components.get(module_component).unwrap().build_data_volume.as_str();
 
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
                 cmd: Some(vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect()),
                 env: environment,
+                labels: Some(labels),
                 working_dir: Some("/build".to_string()),
                 host_config: Some(HostConfig {
                     mounts: Some(vec![Mount {
@@ -265,7 +272,7 @@ impl DockerRuntime {
         }
     }
 
-    async fn delete_container(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {
+    async fn delete_container(&self, agent_id: &str) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
             let options = Some(RemoveContainerOptions {
                 force: true,
@@ -291,6 +298,67 @@ impl DockerRuntime {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
     }
+
+    async fn find_volumes(&self) -> Result<Vec<(String, HashMap<String, String>)>, BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let mut filters= HashMap::new();
+            filters.insert("dangling", vec!["true"]);
+            filters.insert("label", vec!["created-by=jarvis"]);
+
+            docker.list_volumes(Some(ListVolumesOptions { filters })).await
+                .map(|results| {
+                    if let Some(warnings) = results.warnings {
+                        for warning in warnings {
+                            println!("Warning during list volumes: {}", warning);
+                        }
+                    }
+
+                    results.volumes.iter().map(|x| {
+                        let labels_copy = if let Some(labels) = &x.labels {
+                            labels.clone()
+                        } else { HashMap::new() };
+
+                        (x.name.clone(), labels_copy)
+                    }).collect()
+                })
+                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", e) })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn find_containers(&self) -> Result<Vec<(String, Vec<String>, HashMap<String, String>)>, BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let mut filters= HashMap::new();
+            filters.insert("label", vec!["created-by=jarvis"]);
+
+            docker.list_containers(Some(ListContainersOptions {
+                all: true,
+                filters,
+                ..Default::default()
+            })).await
+                .map(|results| {
+                    results.iter().map(|x| {
+                        let labels_copy = if let Some(labels) = &x.labels {
+                            labels.clone()
+                        } else { HashMap::new() };
+
+                        let names_copy = if let Some(names) = &x.names {
+                            names.clone()
+                        } else { vec![] };
+
+                        let id_copy = if let Some(id) = &x.id {
+                            id.clone()
+                        } else { "".to_string() };
+
+                        (id_copy, names_copy, labels_copy)
+                    }).collect()
+                })
+                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", e) })
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
 }
 
 #[async_trait]
@@ -300,17 +368,19 @@ impl BuildRuntime for DockerRuntime {
     }
 
     async fn init_for_module(&mut self, module_name: &String, project_config: &ProjectConfig) -> Result<(), BuildRuntimeError> {
-        let mut hasher = Sha256::new();
-        hasher.input_str("build_data_volume-");
-        hasher.input_str(module_name);
+        let id: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .collect();
+        let volume_name = format!("build-data-volume_{}_{}", module_name, id);
         let module_components = ModuleComponents {
-            build_data_volume: hasher.result_str(),
+            build_data_volume: volume_name.clone(),
             containers: HashMap::new(),
         };
 
         self.module_components.insert(module_name.to_string(), Box::new(module_components));
 
-        self.create_docker_volume(&hasher.result_str()).await
+        self.create_docker_volume(volume_name.as_str()).await
             .map(|_| { () })?;
 
         let init_agent = self.create_agent(module_name, &Agent {
@@ -356,5 +426,41 @@ impl BuildRuntime for DockerRuntime {
 
     async fn tear_down_for_module(&self, module_name: &String) -> Result<(), BuildRuntimeError> {
         self.delete_volume(self.module_components.get(module_name).unwrap().build_data_volume.as_str()).await
+    }
+
+    async fn cleanup_resources(&self) -> Result<(), BuildRuntimeError> {
+        let volumes = self.find_volumes().await?;
+
+        if !volumes.is_empty() {
+            for volume in volumes {
+                println!("Cleanup for volume: {}", volume.0);
+                for label in volume.1 {
+                    println!("label: {}={}", label.0, label.1);
+                }
+                self.delete_volume(volume.0.as_str()).await?;
+                println!();
+            }
+        } else {
+            println!("No unused, Jarvis owned volumes were found.");
+        }
+
+        let containers = self.find_containers().await?;
+        if !containers.is_empty() {
+            for container in containers {
+                println!("Cleanup for volume: {}", container.0);
+                for name in container.1 {
+                    println!("name: {}", name);
+                }
+                for label in container.2 {
+                    println!("label: {}={}", label.0, label.1);
+                }
+                self.delete_container(container.0.as_str()).await?;
+                println!();
+            }
+        } else {
+            println!("No unused, Jarvis owned containers were found.");
+        }
+
+        Ok(())
     }
 }

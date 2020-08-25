@@ -6,13 +6,13 @@ modules:
       - name: golang
         default: true
         image: golang:latest
-        environment:
-          OPTIMISED_BINARY: true
       - name: alpine
         image: alpine:latest
+        environment:
+          A_VARIABLE: true
     steps:
       - name: build
         command: go build
       - name: test
         agent: alpine
-        command: ./main
+        command: echo "A_VARIABLE=$A_VARIABLE" && ./main

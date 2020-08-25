@@ -5,11 +5,13 @@ use crate::runtime::k8s_runtime::KubernetesRuntime;
 use futures_util::core_reexport::fmt::Formatter;
 use std::fmt;
 use crate::build::BuildError;
+use crate::cleanup::CleanupError;
 
 mod runtime;
 mod validate;
 pub mod config;
 mod build;
+mod cleanup;
 
 pub trait OutputFormatter {
     fn print(&self, msg: String);
@@ -33,6 +35,16 @@ pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOpt
 
 pub fn validate_project(project_path: std::path::PathBuf) -> Result<validate::ValidationMessages, validate::ValidationError> {
     return validate::validate_project(project_path);
+}
+
+pub async fn cleanup_resources(runtime: RuntimeOption, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), CleanupError> {
+    let runtime: Box<dyn BuildRuntime> = match runtime {
+        RuntimeOption::Docker => Box::new(DockerRuntime::new() ),
+        RuntimeOption::Kubernetes => Box::new(KubernetesRuntime {}),
+        RuntimeOption::None => Box::new(DockerRuntime::new() )
+    };
+
+    return cleanup::cleanup_resources(runtime, output_formatter).await
 }
 
 pub enum RuntimeOption {

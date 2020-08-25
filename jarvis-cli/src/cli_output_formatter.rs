@@ -20,3 +20,5 @@ impl OutputFormatter for CliOutputFormatter {
         println!("> {}", msg.as_str().dimmed());
     }
 }
+
+unsafe impl Sync for CliOutputFormatter {}

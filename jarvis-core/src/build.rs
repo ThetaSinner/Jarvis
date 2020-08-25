@@ -4,6 +4,7 @@ use crate::runtime::{BuildRuntime, BuildRuntimeError};
 use std::fmt;
 use std::fmt::Formatter;
 use std::error::Error;
+use crate::OutputFormatter;
 
 struct BuildAgentConfig<'a> {
     agents: HashMap<String, &'a Agent>,
@@ -24,26 +25,29 @@ impl fmt::Display for BuildError {
 
 impl Error for BuildError {}
 
-pub async fn build_project(project_path: std::path::PathBuf, mut runtime: Box<dyn BuildRuntime>) -> Result<(), BuildError> {
+pub async fn build_project(project_path: std::path::PathBuf, mut runtime: Box<dyn BuildRuntime>, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), BuildError> {
     let project_config = get_project_config(project_path)
         .map_err(|e| BuildError { msg: format!("Project configuration error: {}", e) })?;
 
     runtime.connect();
 
-    build_project_with_config(project_config, &mut runtime).await
+    build_project_with_config(project_config, &mut runtime, output_formatter).await
 }
 
-async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut Box<dyn BuildRuntime>) -> Result<(), BuildError> {
+async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut Box<dyn BuildRuntime>, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), BuildError> {
     for module in &project_config.build_config.modules {
-        println!("Building module: {}", module.name);
+        output_formatter.print(format!("Building module: {}", module.name));
 
         let agent_config = configure_agents(&module)
             .map_err(|e| {
                 BuildError { msg: format!("Error configuring agents: {}", e) }
             })?;
 
+        output_formatter.print("Starting module build initialisation".to_string());
         runtime.init_for_module(&module.name, &project_config).await.map_err(build_project_error)?;
+        output_formatter.print("Module build initialised, ready to run steps".to_string());
         let module_build_result = build_module(&module, &agent_config, runtime).await;
+        output_formatter.print("Cleaning up".to_string());
         runtime.tear_down_for_module(&module.name).await.map_err(build_project_error)?;
 
         if module_build_result.is_err() {

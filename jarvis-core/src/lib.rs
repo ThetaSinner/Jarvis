@@ -11,14 +11,24 @@ mod validate;
 pub mod config;
 mod build;
 
-pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption) -> Result<(), BuildError> {
+pub trait OutputFormatter {
+    fn print(&self, msg: String);
+
+    fn success(&self, msg: String);
+
+    fn error(&self, msg: String);
+
+    fn background(&self, msg: String);
+}
+
+pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), BuildError> {
     let runtime: Box<dyn BuildRuntime> = match runtime {
         RuntimeOption::Docker => Box::new(DockerRuntime::new() ),
         RuntimeOption::Kubernetes => Box::new(KubernetesRuntime {}),
         RuntimeOption::None => Box::new(DockerRuntime::new() )
     };
 
-    build::build_project(project_path, runtime).await
+    build::build_project(project_path, runtime, output_formatter).await
 }
 
 pub fn validate_project(project_path: std::path::PathBuf) -> Result<validate::ValidationMessages, validate::ValidationError> {

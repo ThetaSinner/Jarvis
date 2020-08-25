@@ -1,3 +1,5 @@
+mod cli_output_formatter;
+
 use std::env::current_dir;
 
 use colored::Colorize;
@@ -6,7 +8,8 @@ use futures::future::Ready;
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
-use jarvis_core::{build_project, RuntimeOption, validate_project};
+use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter};
+use crate::cli_output_formatter::CliOutputFormatter;
 
 #[derive(StructOpt)]
 /// The Jarvis CLI
@@ -49,12 +52,12 @@ fn main() {
             exit_code = validate(project_dir);
         }
         SubCommands::Build { project, runtime } => {
+            let cli_output_formatter = Box::new(CliOutputFormatter {});
             let project_dir = match project {
                 Some(project) => project,
                 None => current_dir().unwrap()
             };
-            println!("Using runtime {}", runtime);
-            exit_code = block_on(rt.block_on(build(project_dir, runtime))).unwrap();
+            exit_code = block_on(rt.block_on(build(project_dir, runtime, cli_output_formatter))).unwrap();
         }
     }
 
@@ -85,13 +88,18 @@ fn validate(project: std::path::PathBuf) -> i32 {
     }
 }
 
-async fn build(project: std::path::PathBuf, runtime: RuntimeOption) -> Ready<Result<i32, ()>> {
-    let result = build_project(project, runtime).await;
+async fn build(project: std::path::PathBuf, runtime: RuntimeOption, output_formatter: Box<dyn OutputFormatter>) -> Ready<Result<i32, ()>> {
+    let result = build_project(project, runtime, &output_formatter).await;
+
+    output_formatter.background("stuff".to_string());
 
     match result {
-        Ok(_) => futures::future::ok(1),
+        Ok(_) => {
+            output_formatter.success("Project build succeeded".to_string());
+            futures::future::ok(1)
+        },
         Err(e) => {
-            println!("Build error: {}", e);
+            output_formatter.error(format!("Project build failed: {}", e));
             futures::future::ok(0)
         }
     }

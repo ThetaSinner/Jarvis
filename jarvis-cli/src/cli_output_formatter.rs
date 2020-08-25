@@ -5,7 +5,7 @@ pub struct CliOutputFormatter {}
 
 impl OutputFormatter for CliOutputFormatter {
     fn print(&self, msg: String) {
-        println!("{}", msg.as_str().bold());
+        println!("> {}", msg.as_str().bold());
     }
 
     fn success(&self, msg: String) {
@@ -17,6 +17,6 @@ impl OutputFormatter for CliOutputFormatter {
     }
 
     fn background(&self, msg: String) {
-        println!("{}", msg.as_str().dimmed());
+        println!("> {}", msg.as_str().dimmed());
     }
 }

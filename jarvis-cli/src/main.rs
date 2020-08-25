@@ -90,9 +90,7 @@ fn validate(project: std::path::PathBuf) -> i32 {
 
 async fn build(project: std::path::PathBuf, runtime: RuntimeOption, output_formatter: Box<dyn OutputFormatter>) -> Ready<Result<i32, ()>> {
     let result = build_project(project, runtime, &output_formatter).await;
-
-    output_formatter.background("stuff".to_string());
-
+    
     match result {
         Ok(_) => {
             output_formatter.success("Project build succeeded".to_string());

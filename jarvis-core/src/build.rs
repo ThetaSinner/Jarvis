@@ -43,8 +43,12 @@ async fn build_project_with_config(project_config: ProjectConfig, runtime: &mut 
             })?;
 
         runtime.init_for_module(&module.name, &project_config).await.map_err(build_project_error)?;
-        build_module(&module, &agent_config, runtime).await?;
+        let module_build_result = build_module(&module, &agent_config, runtime).await;
         runtime.tear_down_for_module(&module.name).await.map_err(build_project_error)?;
+
+        if module_build_result.is_err() {
+            return module_build_result;
+        }
     }
 
     Ok(())
@@ -84,11 +88,13 @@ async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildA
     let agent_id = runtime.create_agent(module_name, agent).await
         .map_err(|e| run_step_error(step.name.as_str(), e))?;
 
-    runtime.execute_command(agent_id.as_str(), &step.command).await
-        .map_err(|e| run_step_error(step.name.as_str(), e))?;
+    let command_result = runtime.execute_command(agent_id.as_str(), &step.command).await
+        .map_err(|e| run_step_error(step.name.as_str(), e));
 
     runtime.destroy_agent(agent_id.as_str()).await
-        .map_err(|e| run_step_error(step.name.as_str(), e))
+        .map_err(|e| run_step_error(step.name.as_str(), e))?;
+
+    command_result
 }
 
 fn run_step_error(step_name: &str, bre: BuildRuntimeError) -> BuildError {

@@ -221,6 +221,7 @@ impl DockerRuntime {
             let exec_id = docker.create_exec(agent_id, CreateExecOptions {
                 cmd: Some(vec!["/bin/sh", "-c", command]),
                 attach_stdout: Some(true),
+                attach_stderr: Some(true),
                 working_dir: Some("/build"),
                 ..Default::default()
             }).await
@@ -242,7 +243,23 @@ impl DockerRuntime {
                         }
                     }
                 })
-                .map_err(|e| BuildRuntimeError { msg: format!("Error running command: {}", e) })
+                .map_err(|e| BuildRuntimeError { msg: format!("Error running command: {}", e) })?;
+
+            docker.inspect_exec(&exec_id).await
+                .map_err(|e| {
+                    BuildRuntimeError { msg: format!("Failed to check command status {}", e) }
+                })
+                .and_then(|result| {
+                    if result.running {
+                        return Err(BuildRuntimeError { msg: "Command has not exited.".to_string() });
+                    }
+
+                    if result.exit_code != Some(0) {
+                        return Err(BuildRuntimeError { msg: format!("Command has non-zero exit status [{}]", result.exit_code.unwrap()) });
+                    }
+
+                    Ok(())
+                })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -250,7 +267,7 @@ impl DockerRuntime {
 
     async fn delete_container(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
-            let options = Some(RemoveContainerOptions{
+            let options = Some(RemoveContainerOptions {
                 force: true,
                 ..Default::default()
             });
@@ -268,8 +285,8 @@ impl DockerRuntime {
                 force: false,
             };
 
-             docker.remove_volume(volume_id, Some(options)).await
-                 .map_err(|e| BuildRuntimeError { msg: format!("Error removing volume [{}]: {}", volume_id, e) })
+            docker.remove_volume(volume_id, Some(options)).await
+                .map_err(|e| BuildRuntimeError { msg: format!("Error removing volume [{}]: {}", volume_id, e) })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -294,10 +311,7 @@ impl BuildRuntime for DockerRuntime {
         self.module_components.insert(module_name.to_string(), Box::new(module_components));
 
         self.create_docker_volume(&hasher.result_str()).await
-            .map(|x| {
-                println!("Created build data volume: {}", x);
-                ()
-            })?;
+            .map(|_| { () })?;
 
         let init_agent = self.create_agent(module_name, &Agent {
             name: "jarvis-init".to_string(),

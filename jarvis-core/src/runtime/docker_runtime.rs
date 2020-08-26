@@ -20,6 +20,8 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use chrono::Utc;
+use path_absolutize::Absolutize;
+use regex::Regex;
 
 pub struct DockerRuntime {
     docker: Option<Docker>,
@@ -31,6 +33,8 @@ struct ModuleComponents {
     build_data_volume: String,
 
     containers: HashMap<String, String>,
+
+    jarvis_directory: PathBuf,
 }
 
 impl DockerRuntime {
@@ -130,8 +134,13 @@ impl DockerRuntime {
         }
     }
 
-    async fn create_container(&self, module_component: &str, name: &str, agent: &Agent) -> Result<String, BuildRuntimeError> {
-        let mut environment = None;
+    async fn create_container(&self,
+                              module_component: &str,
+                              name: &str,
+                              agent: &Agent,
+                              secrets_config: Vec<(String, String, String)>
+    ) -> Result<String, BuildRuntimeError> {
+        let mut environment: Option<Vec<String>> = None;
         if let Some(ref env) = agent.environment {
             let env_list = env.keys().map(|key| format!("{}={}", key, env[key])).collect();
             environment = Some(env_list);
@@ -145,19 +154,36 @@ impl DockerRuntime {
 
             let data_volume = self.module_components.get(module_component).unwrap().build_data_volume.as_str();
 
+            let mut mounts = vec![Mount {
+                target: Some("/build/workspace".to_string()),
+                source: Some(data_volume.clone().to_string()),
+                _type: Some(MountTypeEnum::VOLUME),
+                ..Default::default()
+            }];
+
+            for secret_config in secrets_config {
+                mounts.push(Mount {
+                    target: Some(secret_config.2.clone()),
+                    source: Some(format!("{}", secret_config.1)),
+                    _type: Some(MountTypeEnum::BIND),
+                    ..Default::default()
+                });
+
+                if let Some(environment) = &mut environment {
+                    environment.push(format!("{}_FILE={}", secret_config.0, secret_config.2));
+                } else {
+                    environment = Some(vec![format!("{}_FILE={}", secret_config.0, secret_config.2)]);
+                }
+            }
+
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
                 cmd: Some(vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect()),
                 env: environment,
                 labels: Some(labels),
-                working_dir: Some("/build".to_string()),
+                working_dir: Some("/build/workspace".to_string()),
                 host_config: Some(HostConfig {
-                    mounts: Some(vec![Mount {
-                        target: Some("/build".to_string()),
-                        source: Some(data_volume.clone().to_string()),
-                        _type: Some(MountTypeEnum::VOLUME),
-                        ..Default::default()
-                    }]),
+                    mounts: Some(mounts),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -196,6 +222,7 @@ impl DockerRuntime {
             bundle_path.push(format!("jarvis-bundle-{}.tgz", id));
 
             {
+                // TODO exclude .jarvis/secrets directory from the upload to prevent leaking secrets
                 let tar_gz = File::create(&bundle_path).unwrap();
                 let enc = GzEncoder::new(tar_gz, Compression::default());
                 let mut tar = tar::Builder::new(enc);
@@ -207,7 +234,7 @@ impl DockerRuntime {
             file.read_to_end(&mut contents).unwrap();
 
             let options = Some(UploadToContainerOptions {
-                path: "/build",
+                path: "/build/workspace",
                 ..Default::default()
             });
 
@@ -229,7 +256,7 @@ impl DockerRuntime {
                 cmd: Some(vec!["/bin/sh", "-c", command]),
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
-                working_dir: Some("/build"),
+                working_dir: Some("/build/workspace"),
                 ..Default::default()
             }).await
                 .map(|exec| exec.id)
@@ -374,6 +401,8 @@ impl BuildRuntime for DockerRuntime {
             .collect();
         let volume_name = format!("build-data-volume_{}_{}", module_name, id);
         let module_components = ModuleComponents {
+            jarvis_directory: project_config.jarvis_directory.clone(),
+            // TODO rename to workspace volume
             build_data_volume: volume_name.clone(),
             containers: HashMap::new(),
         };
@@ -388,14 +417,14 @@ impl BuildRuntime for DockerRuntime {
             default: None,
             image: "alpine:latest".to_string(),
             environment: None,
-        }).await?;
+        }, &None::<Vec<String>>).await?;
 
         self.upload_project(init_agent.as_str(), &project_config.project_directory).await?;
 
         self.delete_container(init_agent.as_str()).await
     }
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent) -> Result<String, BuildRuntimeError> {
+    async fn create_agent(&mut self, module_name: &String, agent: &Agent, secrets: &Option<Vec<String>>) -> Result<String, BuildRuntimeError> {
         let id: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
@@ -404,7 +433,9 @@ impl BuildRuntime for DockerRuntime {
 
         self.pull_image(agent.image.as_str()).await?;
 
-        self.create_container(module_name, name.as_str(), agent).await
+        let secrets_config = configure_secrets(&self.module_components.get(module_name).unwrap().jarvis_directory, secrets)?;
+
+        self.create_container(module_name, name.as_str(), agent, secrets_config).await
             .map(|x| {
                 let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
                 component.containers.insert(agent.name.clone(), x);
@@ -429,25 +460,10 @@ impl BuildRuntime for DockerRuntime {
     }
 
     async fn cleanup_resources(&self) -> Result<(), BuildRuntimeError> {
-        let volumes = self.find_volumes().await?;
-
-        if !volumes.is_empty() {
-            for volume in volumes {
-                println!("Cleanup for volume: {}", volume.0);
-                for label in volume.1 {
-                    println!("label: {}={}", label.0, label.1);
-                }
-                self.delete_volume(volume.0.as_str()).await?;
-                println!();
-            }
-        } else {
-            println!("No unused, Jarvis owned volumes were found.");
-        }
-
         let containers = self.find_containers().await?;
         if !containers.is_empty() {
             for container in containers {
-                println!("Cleanup for volume: {}", container.0);
+                println!("Cleanup for container: {}", container.0);
                 for name in container.1 {
                     println!("name: {}", name);
                 }
@@ -461,6 +477,57 @@ impl BuildRuntime for DockerRuntime {
             println!("No unused, Jarvis owned containers were found.");
         }
 
+        let volumes = self.find_volumes().await?;
+        if !volumes.is_empty() {
+            for volume in volumes {
+                println!("Cleanup for volume: {}", volume.0);
+                for label in volume.1 {
+                    println!("label: {}={}", label.0, label.1);
+                }
+                self.delete_volume(volume.0.as_str()).await?;
+                println!();
+            }
+        } else {
+            println!("No unused, Jarvis owned volumes were found.");
+        }
+
         Ok(())
     }
+}
+
+fn configure_secrets(jarvis_directory: &PathBuf, secrets: &Option<Vec<String>>) -> Result<Vec<(String, String, String)>, BuildRuntimeError> {
+    let mut secret_mounts = Vec::<(String, String, String)>::new();
+    if let Some(secrets) = secrets {
+        for secret in secrets {
+            let secret_file = jarvis_directory.join("secrets").join(format!("{}.secret.txt", secret));
+
+            if !secret_file.exists() {
+                return Err(BuildRuntimeError { msg: format!("Secret [{}] not found at [{}]", secret, secret_file.to_str().unwrap()) });
+            }
+
+            let target_path = secret_file.absolutize().unwrap().to_str().unwrap().to_owned();
+            secret_mounts.push((
+                to_environment_variable_name(secret),
+                target_path,
+                format!("/build/secrets/{}", secret)
+            ));
+        }
+    }
+
+    Ok(secret_mounts)
+}
+
+fn to_environment_variable_name(source: &str) -> String {
+    let pattern = Regex::new(r"(?P<l>.*)[^a-zA-Z0-9_](?P<r>.*)").unwrap();
+
+    // Loop required to deal with overlapping matches, would a different regex help?
+
+    let mut last = "".to_owned();
+    let mut next = source.to_owned();
+    while last != next {
+        last = next.clone();
+        next = pattern.replace_all(next.as_str(), "${l}_$r").into_owned();
+    }
+
+    next.to_ascii_uppercase()
 }

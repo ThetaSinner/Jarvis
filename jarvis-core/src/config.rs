@@ -25,6 +25,8 @@ pub struct Step {
     pub command: String,
 
     pub agent: Option<String>,
+
+    pub secrets: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -48,7 +50,9 @@ pub struct BuildConfig {
 pub struct ProjectConfig {
     pub project_directory: PathBuf,
 
-    pub build_config: BuildConfig
+    pub jarvis_directory: PathBuf,
+
+    pub build_config: BuildConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -65,12 +69,13 @@ impl fmt::Display for ConfigError {
 impl Error for ConfigError {}
 
 pub fn get_project_config(project_directory: std::path::PathBuf) -> Result<ProjectConfig, ConfigError> {
-    let project_dir = find_project_dir(&project_directory);
-    if project_dir.is_none() {
+    let project_dir = if let Some(project_dir) = find_project_dir(&project_directory) {
+        project_dir
+    } else {
         return Err(ConfigError { msg: "No .jarvis directory found in the project root".to_string() });
-    }
+    };
 
-    let build_file = project_dir.unwrap().join("build.yaml");
+    let build_file = project_dir.join("build.yaml");
     if !build_file.exists() {
         return Err(ConfigError { msg: "build.yaml file not found in .jarvis directory".to_string() });
     }
@@ -92,6 +97,7 @@ pub fn get_project_config(project_directory: std::path::PathBuf) -> Result<Proje
     }
 
     return Ok(ProjectConfig {
+        jarvis_directory: project_dir,
         project_directory,
         build_config
     });

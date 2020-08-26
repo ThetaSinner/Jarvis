@@ -89,7 +89,7 @@ async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildA
         }
     };
 
-    let agent_id = runtime.create_agent(module_name, agent).await
+    let agent_id = runtime.create_agent(module_name, agent, &step.secrets).await
         .map_err(|e| run_step_error(step.name.as_str(), e))?;
 
     let command_result = runtime.execute_command(agent_id.as_str(), &step.command).await

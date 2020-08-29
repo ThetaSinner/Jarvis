@@ -8,7 +8,6 @@ use crate::config::{Agent, ProjectConfig};
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
-use futures::TryStreamExt;
 use bollard::image::{CreateImageOptions, CreateImageResults};
 use tokio::stream::StreamExt;
 use std::{io, env};
@@ -68,6 +67,8 @@ impl DockerRuntime {
     }
 
     async fn pull_image(&self, image: &str) -> Result<(), BuildRuntimeError> {
+        // TODO validate that a tag is provided, otherwise this will pull all tags for a repository.
+
         if let Some(ref docker) = self.docker {
             let mut pull_results = docker.create_image(Some(CreateImageOptions {
                 from_image: image,
@@ -157,7 +158,7 @@ impl DockerRuntime {
             let mut mounts = vec![Mount {
                 target: Some("/build/workspace".to_string()),
                 source: Some(data_volume.clone().to_string()),
-                _type: Some(MountTypeEnum::VOLUME),
+                typ: Some(MountTypeEnum::VOLUME),
                 ..Default::default()
             }];
 
@@ -165,7 +166,7 @@ impl DockerRuntime {
                 mounts.push(Mount {
                     target: Some(secret_config.2.clone()),
                     source: Some(format!("{}", secret_config.1)),
-                    _type: Some(MountTypeEnum::BIND),
+                    typ: Some(MountTypeEnum::BIND),
                     ..Default::default()
                 });
 
@@ -176,14 +177,33 @@ impl DockerRuntime {
                 }
             }
 
+            let mut user_config = None;
+            let mut privileged = false;
+            if let Some(container) = &agent.container {
+                privileged = container.privileged.unwrap_or(false);
+
+                if let Some(user) = &container.user {
+                    if let Some(group) = &container.group {
+                        user_config = Some(format!("{}:{}", user, group));
+                    } else {
+                        user_config = Some(user.to_string());
+                    }
+                }
+            }
+
+            let command_config = vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect();
+
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
-                cmd: Some(vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect()),
+                entrypoint: Some(command_config),
+                cmd: Some(vec![]),
                 env: environment,
                 labels: Some(labels),
                 working_dir: Some("/build/workspace".to_string()),
+                user: user_config,
                 host_config: Some(HostConfig {
                     mounts: Some(mounts),
+                    privileged: Some(privileged),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -263,9 +283,11 @@ impl DockerRuntime {
                 .map_err(|e| BuildRuntimeError { msg: format!("Failed to create exec: {}", e) })
                 ?;
 
-            docker.start_exec(&exec_id, None::<StartExecOptions>).try_collect::<Vec<_>>().await
-                .map(|results| {
-                    for result in results {
+            let mut exec = docker.start_exec(&exec_id, None::<StartExecOptions>);
+
+            while let Some(exec_result) = exec.next().await {
+                match exec_result {
+                    Ok(result) => {
                         match result {
                             StartExecResults::Attached { log } => {
                                 println!("{}", log);
@@ -275,9 +297,12 @@ impl DockerRuntime {
                                 // Do nothing
                             }
                         }
+                    },
+                    Err(e) => {
+                        return Err(BuildRuntimeError { msg: format!("Error running exec: {}", e) });
                     }
-                })
-                .map_err(|e| BuildRuntimeError { msg: format!("Error running command: {}", e) })?;
+                }
+            }
 
             docker.inspect_exec(&exec_id).await
                 .map_err(|e| {
@@ -417,6 +442,7 @@ impl BuildRuntime for DockerRuntime {
             default: None,
             image: "alpine:latest".to_string(),
             environment: None,
+            container: None,
         }, &None::<Vec<String>>).await?;
 
         self.upload_project(init_agent.as_str(), &project_config.project_directory).await?;

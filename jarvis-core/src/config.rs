@@ -15,7 +15,9 @@ pub struct Agent {
 
     pub image: String,
 
-    pub environment: Option<HashMap<String, String>>
+    pub environment: Option<HashMap<String, String>>,
+
+    pub container: Option<ContainerConfiguration>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -45,6 +47,15 @@ pub struct BuildConfig {
     pub api_version: f32,
 
     pub modules: Vec<Module>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Default)]
+pub struct ContainerConfiguration {
+    pub user: Option<String>,
+
+    pub group: Option<String>,
+
+    pub privileged: Option<bool>,
 }
 
 pub struct ProjectConfig {

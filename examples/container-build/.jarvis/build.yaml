@@ -1,0 +1,20 @@
+api_version: 0.1
+modules:
+  - name: containerised-app
+    path: .
+    agents:
+      - name: python
+        default: true
+        image: python:3-buster
+      - name: container-build
+        image: moby/buildkit:master-rootless
+        container:
+          user: 1000
+          group: 1000
+          privileged: true
+    steps:
+      - name: test
+        command: python main.py
+      - name: build-container
+        agent: container-build
+        command: buildctl-daemonless.sh build --frontend dockerfile.v0 --local context=. --local dockerfile=.

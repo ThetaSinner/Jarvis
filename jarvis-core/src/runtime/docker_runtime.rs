@@ -8,7 +8,7 @@ use crate::config::{Agent, ProjectConfig};
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
-use bollard::image::{CreateImageOptions, CreateImageResults};
+use bollard::image::{CreateImageOptions};
 use tokio::stream::StreamExt;
 use std::{io, env};
 use std::io::{Write, Read};
@@ -80,45 +80,45 @@ impl DockerRuntime {
             while let Some(pull_result) = pull_results.next().await {
                 match pull_result {
                     Ok(create_result) => {
-                        match create_result {
-                            CreateImageResults::CreateImageProgressResponse { status, progress_detail: _progress_detail, id, progress } => {
-                                if let Some(layer_id) = id {
-                                    if !layer_id_line_numbers.contains_key(layer_id.as_str()) {
-                                        layer_id_line_numbers.insert(layer_id.clone(), layer_id_line_numbers.len() + 1);
+                        if let Some(err) = create_result.error {
+                            print!("\n{}", ansi_escapes::CursorShow);
+                            println!("{}", err);
+                            return Err(BuildRuntimeError { msg: format!("Image pull error: {}", err) });
+                        } else {
+                            let status = create_result.status.unwrap();
+                            let progress = create_result.progress;
 
-                                        let msg = match status.as_str() {
-                                            "Downloading" => progress.unwrap(),
-                                            _ => status
-                                        };
+                            if let Some(layer_id) = create_result.id {
+                                if !layer_id_line_numbers.contains_key(layer_id.as_str()) {
+                                    layer_id_line_numbers.insert(layer_id.clone(), layer_id_line_numbers.len() + 1);
 
-                                        match layer_id_line_numbers.len() {
-                                            1 => print!("{} {}", layer_id, msg),
-                                            _ => print!("\n{} {}", layer_id, msg)
-                                        }
-                                    } else {
-                                        let msg = match status.as_str() {
-                                            "Downloading" => progress.unwrap(),
-                                            _ => status
-                                        };
+                                    let msg = match status.as_str() {
+                                        "Downloading" => progress.unwrap(),
+                                        _ => status
+                                    };
 
-                                        let move_lines = layer_id_line_numbers.len() - layer_id_line_numbers.get(layer_id.as_str()).unwrap();
-                                        match move_lines {
-                                            0 => print!("\r{}{} {}", ansi_escapes::EraseEndLine, layer_id, msg),
-                                            _ => print!("{}\r{}{} {}{}", ansi_escapes::CursorUp(move_lines as u16), ansi_escapes::EraseEndLine, layer_id, msg, ansi_escapes::CursorDown(move_lines as u16))
-                                        }
+                                    match layer_id_line_numbers.len() {
+                                        1 => print!("{} {}", layer_id, msg),
+                                        _ => print!("\n{} {}", layer_id, msg)
                                     }
-                                } else if let Some(progress_msg) = progress {
-                                    // Relies on these kinds of messages being written last, after all the layers have been handled.
-                                    print!("\n{}", progress_msg)
-                                }
+                                } else {
+                                    let msg = match status.as_str() {
+                                        "Downloading" => progress.unwrap(),
+                                        _ => status
+                                    };
 
-                                io::stdout().flush().unwrap();
+                                    let move_lines = layer_id_line_numbers.len() - layer_id_line_numbers.get(layer_id.as_str()).unwrap();
+                                    match move_lines {
+                                        0 => print!("\r{}{} {}", ansi_escapes::EraseEndLine, layer_id, msg),
+                                        _ => print!("{}\r{}{} {}{}", ansi_escapes::CursorUp(move_lines as u16), ansi_escapes::EraseEndLine, layer_id, msg, ansi_escapes::CursorDown(move_lines as u16))
+                                    }
+                                }
+                            } else if let Some(progress_msg) = progress {
+                                // Relies on these kinds of messages being written last, after all the layers have been handled.
+                                print!("\n{}", progress_msg)
                             }
-                            CreateImageResults::CreateImageError { error_detail: _error_detail, error } => {
-                                print!("\n{}", ansi_escapes::CursorShow);
-                                println!("{}", error);
-                                return Err(BuildRuntimeError { msg: format!("Image pull error: {}", error) });
-                            }
+
+                            io::stdout().flush().unwrap();
                         }
                     }
                     Err(e) => {
@@ -198,6 +198,10 @@ impl DockerRuntime {
                 entrypoint: Some(command_config),
                 cmd: Some(vec![]),
                 env: environment,
+                tty: Some(true),
+                attach_stdin: Some(true),
+                attach_stderr: Some(true),
+                attach_stdout: Some(true),
                 labels: Some(labels),
                 working_dir: Some("/build/workspace".to_string()),
                 user: user_config,
@@ -214,7 +218,7 @@ impl DockerRuntime {
                     println!("docker container create warning: {}", warning);
                 }
                 x.id
-            }).map_err(|e| BuildRuntimeError { msg: format!("Failed to create container: {}", e) })
+            }).map_err(|e| BuildRuntimeError { msg: format!("Failed to create container: {}", format_docker_api_error(e)) })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -224,7 +228,7 @@ impl DockerRuntime {
         if let Some(ref docker) = self.docker {
             docker.start_container(name, None::<StartContainerOptions<String>>).await
                 .map_err(|e| {
-                    BuildRuntimeError { msg: format!("Failed to start container: {}", e) }
+                    BuildRuntimeError { msg: format!("Failed to start container: {}", format_docker_api_error(e)) }
                 })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
@@ -263,7 +267,7 @@ impl DockerRuntime {
             std::fs::remove_file(bundle_path).unwrap();
 
             upload_result.map_err(|e| {
-                BuildRuntimeError { msg: format!("Error uploading build bundle: {}", e) }
+                BuildRuntimeError { msg: format!("Error uploading build bundle: {}", format_docker_api_error(e)) }
             })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
@@ -276,11 +280,13 @@ impl DockerRuntime {
                 cmd: Some(vec!["/bin/sh", "-c", command]),
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
+                attach_stdin: Some(true),
+                tty: Some(true),
                 working_dir: Some("/build/workspace"),
                 ..Default::default()
             }).await
                 .map(|exec| exec.id)
-                .map_err(|e| BuildRuntimeError { msg: format!("Failed to create exec: {}", e) })
+                .map_err(|e| BuildRuntimeError { msg: format!("Failed to create exec: {}", format_docker_api_error(e)) })
                 ?;
 
             let mut exec = docker.start_exec(&exec_id, None::<StartExecOptions>);
@@ -306,11 +312,15 @@ impl DockerRuntime {
 
             docker.inspect_exec(&exec_id).await
                 .map_err(|e| {
-                    BuildRuntimeError { msg: format!("Failed to check command status {}", e) }
+                    BuildRuntimeError { msg: format!("Failed to check command status {}", format_docker_api_error(e)) }
                 })
                 .and_then(|result| {
-                    if result.running {
-                        return Err(BuildRuntimeError { msg: "Command has not exited.".to_string() });
+                    if let Some(running) = result.running {
+                        if running {
+                            return Err(BuildRuntimeError { msg: "Command has not exited.".to_string() });
+                        }
+                    } else {
+                        return Err(BuildRuntimeError { msg: "Command status is not available.".to_string() });
                     }
 
                     if result.exit_code != Some(0) {
@@ -332,7 +342,7 @@ impl DockerRuntime {
             });
 
             docker.remove_container(agent_id, options).await
-                .map_err(|e| BuildRuntimeError { msg: format!("Failed to remove container [{}]: {}", agent_id, e) })
+                .map_err(|e| BuildRuntimeError { msg: format!("Failed to remove container [{}]: {}", agent_id, format_docker_api_error(e)) })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -345,7 +355,7 @@ impl DockerRuntime {
             };
 
             docker.remove_volume(volume_id, Some(options)).await
-                .map_err(|e| BuildRuntimeError { msg: format!("Error removing volume [{}]: {}", volume_id, e) })
+                .map_err(|e| BuildRuntimeError { msg: format!("Error removing volume [{}]: {}", volume_id, format_docker_api_error(e)) })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -359,21 +369,17 @@ impl DockerRuntime {
 
             docker.list_volumes(Some(ListVolumesOptions { filters })).await
                 .map(|results| {
-                    if let Some(warnings) = results.warnings {
-                        for warning in warnings {
-                            println!("Warning during list volumes: {}", warning);
-                        }
+                    for warning in &results.warnings {
+                        println!("Warning during list volumes: {}", warning);
                     }
 
                     results.volumes.iter().map(|x| {
-                        let labels_copy = if let Some(labels) = &x.labels {
-                            labels.clone()
-                        } else { HashMap::new() };
+                        let labels_copy = x.labels.clone();
 
                         (x.name.clone(), labels_copy)
                     }).collect()
                 })
-                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", e) })
+                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", format_docker_api_error(e)) })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -406,7 +412,7 @@ impl DockerRuntime {
                         (id_copy, names_copy, labels_copy)
                     }).collect()
                 })
-                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", e) })
+                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", format_docker_api_error(e)) })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -556,4 +562,10 @@ fn to_environment_variable_name(source: &str) -> String {
     }
 
     next.to_ascii_uppercase()
+}
+
+fn format_docker_api_error(e: bollard::errors::Error) -> String {
+    match e {
+        _ => "Driver error".to_string()
+    }
 }

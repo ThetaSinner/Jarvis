@@ -17,4 +17,4 @@ modules:
         command: python main.py
       - name: build-container
         agent: container-build
-        command: buildctl-daemonless.sh build --frontend dockerfile.v0 --local context=. --local dockerfile=.
+        command: buildctl-daemonless.sh build --progress tty --frontend dockerfile.v0 --local context=. --local dockerfile=.

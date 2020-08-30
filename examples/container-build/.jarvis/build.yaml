@@ -8,6 +8,10 @@ modules:
         image: python:3-buster
       - name: container-build
         image: moby/buildkit:master-rootless
+        cache:
+          - name: images
+            # TODO check for volumes declared in images which are not mounted explicitly at runtime and produce a warning.
+            location: /home/user/.local/share/buildkit
         container:
           user: 1000
           group: 1000

@@ -4,7 +4,7 @@ use bollard::Docker;
 use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions, ListVolumesOptions};
 use async_trait::async_trait;
 
-use crate::config::{Agent, ProjectConfig};
+use crate::config::{Agent, ProjectConfig, CacheRule};
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
@@ -31,6 +31,8 @@ pub struct DockerRuntime {
 struct ModuleComponents {
     build_data_volume: String,
 
+    identifier_base: String,
+
     containers: HashMap<String, String>,
 
     jarvis_directory: PathBuf,
@@ -44,12 +46,17 @@ impl DockerRuntime {
         }
     }
 
-    async fn create_docker_volume(&self, id: &str) -> Result<String, BuildRuntimeError> {
+    async fn create_docker_volume(&self, id: &str, extra_labels: Option<HashMap<String, String>>) -> Result<String, BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
             let time = Utc::now().to_rfc3339();
             let mut labels = HashMap::new();
             labels.insert("created-by", "jarvis");
             labels.insert("build-time", time.as_str());
+            if let Some(extras) = &extra_labels {
+                for extra in extras {
+                    labels.insert(extra.0, extra.1);
+                }
+            }
 
             let volume_result = docker.create_volume(CreateVolumeOptions {
                 name: id,
@@ -177,6 +184,19 @@ impl DockerRuntime {
                 }
             }
 
+            if let Some(cache_list) = &agent.cache {
+                let cache_volumes = ensure_caches_created(&self, cache_list, self.module_components.get(module_component).unwrap().identifier_base.as_str()).await?;
+
+                for cache in cache_list {
+                    mounts.push(Mount {
+                        target: Some(cache.location.clone()),
+                        source: Some(cache_volumes.get(cache.name.as_str()).unwrap().clone()),
+                        typ: Some(MountTypeEnum::VOLUME),
+                        ..Default::default()
+                    });
+                }
+            }
+
             let mut user_config = None;
             let mut privileged = false;
             if let Some(container) = &agent.container {
@@ -296,7 +316,7 @@ impl DockerRuntime {
                     Ok(result) => {
                         match result {
                             StartExecResults::Attached { log } => {
-                                println!("{}", log);
+                                print!("{}", log);
                             }
                             StartExecResults::Detached => {
                                 println!("Not attached");
@@ -430,17 +450,19 @@ impl BuildRuntime for DockerRuntime {
             .sample_iter(&Alphanumeric)
             .take(30)
             .collect();
-        let volume_name = format!("build-data-volume_{}_{}", module_name, id);
+        let data_volume_name = format!("build-data-volume_{}_{}", module_name, id);
         let module_components = ModuleComponents {
             jarvis_directory: project_config.jarvis_directory.clone(),
             // TODO rename to workspace volume
-            build_data_volume: volume_name.clone(),
+            build_data_volume: data_volume_name.clone(),
             containers: HashMap::new(),
+            // TODO identify the project more specifically to allow duplicate module names.
+            identifier_base: format!("{}", module_name),
         };
 
         self.module_components.insert(module_name.to_string(), Box::new(module_components));
 
-        self.create_docker_volume(volume_name.as_str()).await
+        self.create_docker_volume(data_volume_name.as_str(), None).await
             .map(|_| { () })?;
 
         let init_agent = self.create_agent(module_name, &Agent {
@@ -448,6 +470,7 @@ impl BuildRuntime for DockerRuntime {
             default: None,
             image: "alpine:latest".to_string(),
             environment: None,
+            cache: None,
             container: None,
         }, &None::<Vec<String>>).await?;
 
@@ -568,4 +591,20 @@ fn format_docker_api_error(e: bollard::errors::Error) -> String {
     match e {
         _ => "Driver error".to_string()
     }
+}
+
+async fn ensure_caches_created(runtime: &DockerRuntime, cache_rules: &Vec<CacheRule>, identifier_base: &str) -> Result<HashMap<String, String>, BuildRuntimeError> {
+    let volumes: HashMap<String, String> = cache_rules.iter().map(|rule| {
+        let cache_volume_name = format!("cache_{}_{}", identifier_base, rule.name);
+        (rule.name.clone(), cache_volume_name)
+    }).collect();
+
+    let mut extra_labels = HashMap::new();
+    extra_labels.insert("used-for".to_string(), "caching".to_string());
+
+    for volume in &volumes {
+        runtime.create_docker_volume(volume.1, Some(extra_labels.clone())).await?;
+    }
+
+    Ok(volumes)
 }

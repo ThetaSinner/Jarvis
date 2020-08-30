@@ -17,7 +17,16 @@ pub struct Agent {
 
     pub environment: Option<HashMap<String, String>>,
 
+    pub cache: Option<Vec<CacheRule>>,
+
     pub container: Option<ContainerConfiguration>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct CacheRule {
+    pub name: String,
+
+    pub location: String,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

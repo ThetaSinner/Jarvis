@@ -1,0 +1,26 @@
+api_version: 0.1
+modules:
+  - name: jarvis-sample-app
+    path: .
+    agents:
+      - name: python
+        default: true
+        image: python:3-buster
+      - name: container-build
+        image: moby/buildkit:master-rootless
+        cache:
+          - name: images
+            # TODO check for volumes declared in images which are not mounted explicitly at runtime and produce a warning.
+            location: /home/user/.local/share/buildkit
+        container:
+          user: 1000
+          group: 1000
+          privileged: true
+    steps:
+      - name: test
+        command: python main.py
+      - name: build-container
+        agent: container-build
+        secrets:
+          - config
+        command: mkdir -p ~/.docker && cp $CONFIG_FILE ~/.docker/config.json && buildctl-daemonless.sh build --progress tty --frontend dockerfile.v0 --local context=. --local dockerfile=. --output type=image,name=thetasinner/jarvis-sample-app,push=true

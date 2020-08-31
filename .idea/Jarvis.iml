@@ -5,6 +5,12 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/jarvis-core/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/jarvis-cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/agent/agent-sdk/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/agent/plugins/hello-world-plugin/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/agent/agent-worker/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/agent/agent-sdk/target" />
+      <excludeFolder url="file://$MODULE_DIR$/agent/agent-worker/target" />
+      <excludeFolder url="file://$MODULE_DIR$/agent/plugins/hello-world-plugin/target" />
       <excludeFolder url="file://$MODULE_DIR$/jarvis-cli/target" />
       <excludeFolder url="file://$MODULE_DIR$/jarvis-core/target" />
     </content>

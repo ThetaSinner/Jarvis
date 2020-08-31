@@ -1,5 +1,6 @@
-use agent_sdk::{JarvisAgentPluginContainer, RegistrationModel};
+use agent_sdk::RegistrationModel;
 use agent_sdk::plugin_id;
+use agent_sdk::server::JarvisAgentPluginContainer;
 
 fn main() {
     let mut container = JarvisAgentPluginContainer::new(plugin_id!());

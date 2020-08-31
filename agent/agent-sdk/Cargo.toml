@@ -1,0 +1,14 @@
+[package]
+name = "agent-sdk"
+version = "0.1.0"
+authors = ["ThetaSinner <greatdjonfire@hotmail.co.uk>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jsonrpc-core = "14.2"
+jsonrpc-core-client = "14.2"
+jsonrpc-ipc-server = "14.2"
+jsonrpc-derive = "14.2"
+serde = { version = "1.0", features = ["derive"] }

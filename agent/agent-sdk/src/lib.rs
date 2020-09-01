@@ -10,13 +10,33 @@ pub mod client;
 #[rpc]
 pub trait AgentPlugin {
     #[rpc(name = "register")]
-    fn register(&self) -> Result<RegistrationModel>;
+    fn register(&self) -> Result<RegistrationResponseModel>;
+
+    #[rpc(name = "initialise")]
+    fn initialize(&self, initialisation_model: InitzalisationModel) -> Result<InitializationResponseModel>;
+
+    #[rpc(name = "finalize")]
+    fn finalize(&self, finialisation_model: FinalizationModel) -> Result<FinalizationResponseModel>;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RegistrationModel {
-    pub lifecycle_init: bool,
+pub struct RegistrationResponseModel {
+    pub lifecycle_initialize: bool,
+
+    pub lifecycle_finalize: bool,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InitzalisationModel {}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InitializationResponseModel {}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FinalizationModel {}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FinalizationResponseModel {}
 
 #[macro_export]
 macro_rules! plugin_id {

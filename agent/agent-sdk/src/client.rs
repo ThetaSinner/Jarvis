@@ -1,6 +1,6 @@
 use jsonrpc_ipc_server::tokio::runtime::Runtime;
 use jsonrpc_core::futures::future::Future;
-use crate::{RegistrationResponseModel, InitzalisationModel, InitializationResponseModel, FinalizationModel, FinalizationResponseModel};
+use crate::{RegistrationResponseModel, InitializationModel, InitializationResponseModel, FinalizationModel, FinalizationResponseModel};
 use crate::error::PluginError;
 
 pub struct PluginClientConnection {
@@ -15,7 +15,7 @@ impl PluginClientConnection {
         container.borrow_runtime().block_on(f)
     }
 
-    pub fn initialize(&self, container: &mut PluginClientContainer, initialization_model: InitzalisationModel) -> Result<InitializationResponseModel, PluginError> {
+    pub fn initialize(&self, container: &mut PluginClientContainer, initialization_model: InitializationModel) -> Result<InitializationResponseModel, PluginError> {
         let f = self.conn.initialize(initialization_model).map_err(|e| { PluginError { msg: format!("{}", e) } });
 
         container.borrow_runtime().block_on(f)

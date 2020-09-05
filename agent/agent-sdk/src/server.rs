@@ -1,4 +1,4 @@
-use crate::{RegistrationResponseModel, error, AgentPlugin, InitzalisationModel, InitializationResponseModel, FinalizationModel, FinalizationResponseModel};
+use crate::{RegistrationResponseModel, error, AgentPlugin, InitializationModel, InitializationResponseModel, FinalizationModel, FinalizationResponseModel};
 use jsonrpc_ipc_server::jsonrpc_core::{IoHandler, ErrorCode};
 use jsonrpc_ipc_server::ServerBuilder;
 use jsonrpc_core::Result;
@@ -17,7 +17,7 @@ impl JarvisAgentPluginContainer {
         }
     }
 
-    pub fn add_initialize(&mut self, f: fn(InitzalisationModel) -> std::result::Result<InitializationResponseModel, error::PluginError>) {
+    pub fn add_initialize(&mut self, f: fn(InitializationModel) -> std::result::Result<InitializationResponseModel, error::PluginError>) {
         self.plugin_impl.initialization = Some(f);
     }
 
@@ -37,7 +37,7 @@ impl JarvisAgentPluginContainer {
 }
 
 struct AgentPluginImpl {
-    initialization: Option<fn(InitzalisationModel) -> std::result::Result<InitializationResponseModel, error::PluginError>>,
+    initialization: Option<fn(InitializationModel) -> std::result::Result<InitializationResponseModel, error::PluginError>>,
 
     finalization: Option<fn(FinalizationModel) -> std::result::Result<FinalizationResponseModel, error::PluginError>>,
 }
@@ -51,7 +51,7 @@ impl AgentPlugin for AgentPluginImpl {
         map_result_for_json_rpc(result)
     }
 
-    fn initialize(&self, initialization_model: InitzalisationModel) -> Result<InitializationResponseModel> {
+    fn initialize(&self, initialization_model: InitializationModel) -> Result<InitializationResponseModel> {
         if let Some(initialisation) = &self.initialization {
             let result = initialisation(initialization_model);
             map_result_for_json_rpc(result)

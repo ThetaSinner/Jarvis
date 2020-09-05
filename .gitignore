@@ -205,5 +205,4 @@ $RECYCLE.BIN/
 
 target
 *.tar.gz
-*.ps1
 *.exe

@@ -13,7 +13,7 @@ pub trait AgentPlugin {
     fn register(&self) -> Result<RegistrationResponseModel>;
 
     #[rpc(name = "initialise")]
-    fn initialize(&self, initialisation_model: InitzalisationModel) -> Result<InitializationResponseModel>;
+    fn initialize(&self, initialisation_model: InitializationModel) -> Result<InitializationResponseModel>;
 
     #[rpc(name = "finalize")]
     fn finalize(&self, finialisation_model: FinalizationModel) -> Result<FinalizationResponseModel>;
@@ -27,7 +27,7 @@ pub struct RegistrationResponseModel {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct InitzalisationModel {}
+pub struct InitializationModel {}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InitializationResponseModel {}

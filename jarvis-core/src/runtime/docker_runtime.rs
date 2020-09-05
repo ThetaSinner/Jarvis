@@ -8,7 +8,7 @@ use crate::config::{Agent, ProjectConfig, CacheRule};
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
-use bollard::image::{CreateImageOptions};
+use bollard::image::{CreateImageOptions, ListImagesOptions};
 use tokio::stream::StreamExt;
 use std::{io, env};
 use std::io::{Write, Read};
@@ -68,6 +68,26 @@ impl DockerRuntime {
             return volume_result
                 .map(|x| x.name)
                 .map_err(|e| BuildRuntimeError { msg: e.to_string() });
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn image_available(&self, image: &str) -> Result<bool, BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let mut filters = HashMap::new();
+            filters.insert("reference", vec![image]);
+
+            docker.list_images(Some(ListImagesOptions {
+                filters,
+                ..Default::default()
+            })).await
+                .map_err(|e| {
+                    BuildRuntimeError { msg: format!("{}", format_docker_api_error(e)) }
+                })
+                .map(|r| {
+                    r.len() > 0
+                })
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -486,7 +506,9 @@ impl BuildRuntime for DockerRuntime {
             .collect();
         let name = format!("jarvis-agent-{}-{}-{}", module_name, agent.name, id);
 
-        self.pull_image(agent.image.as_str()).await?;
+        if !self.image_available(agent.image.as_str()).await? {
+            self.pull_image(agent.image.as_str()).await?;
+        }
 
         let secrets_config = configure_secrets(&self.module_components.get(module_name).unwrap().jarvis_directory, secrets)?;
 

@@ -1,4 +1,4 @@
-use crate::config::{get_project_config, ProjectConfig, Module, Agent, Step};
+use crate::config::{get_project_config, ProjectConfig, Module, Agent, Step, ShellConfig};
 use std::collections::HashMap;
 use crate::runtime::{BuildRuntime, BuildRuntimeError};
 use std::fmt;
@@ -92,8 +92,25 @@ async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildA
     let agent_id = runtime.create_agent(module_name, agent, &step.secrets).await
         .map_err(|e| run_step_error(step.name.as_str(), e))?;
 
-    let command_result = runtime.execute_command(agent_id.as_str(), &step.command).await
+    let shell_default = ShellConfig {
+        executable: "/bin/sh".to_string()
+    };
+
+    let shell_config = match &step.shell {
+        Some(s) => s.clone(),
+        None => &shell_default
+    };
+
+    let command_result = runtime.execute_command(agent_id.as_str(), shell_config, &step.command).await
         .map_err(|e| run_step_error(step.name.as_str(), e));
+
+    if let Some(archives) = &step.archives {
+        for archive in archives {
+            println!("Getting archive: {}", archive.name);
+            runtime.get_archive(agent_id.as_str(), archive).await
+                .map_err(|e| run_step_error(step.name.as_str(), e))?
+        }
+    }
 
     runtime.destroy_agent(agent_id.as_str()).await
         .map_err(|e| run_step_error(step.name.as_str(), e))?;

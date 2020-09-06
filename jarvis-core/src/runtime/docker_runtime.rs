@@ -4,8 +4,8 @@ use bollard::Docker;
 use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions, ListVolumesOptions};
 use async_trait::async_trait;
 
-use crate::config::{Agent, ProjectConfig, CacheRule};
-use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions};
+use crate::config::{Agent, ProjectConfig, CacheRule, ArchiveRule, ShellConfig};
+use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions, DownloadFromContainerOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 use bollard::image::{CreateImageOptions, ListImagesOptions};
@@ -314,10 +314,46 @@ impl DockerRuntime {
         }
     }
 
-    async fn execute_command_internal(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
+    async fn get_archive_internal(&mut self, agent_id: &str, archive_rule: &ArchiveRule) -> Result<(), BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let mut download_stream = docker.download_from_container(agent_id, Some(DownloadFromContainerOptions {
+                path: archive_rule.location.clone()
+            }));
+
+            let output_file_name = match &archive_rule.output {
+                Some(output) => output.clone(),
+                None => format!("{}.tgz", archive_rule.name)
+            };
+
+            let mut f = File::create(output_file_name)
+                .map_err(|e| {
+                    BuildRuntimeError { msg: format!("Failed to create file for archive {}, due to {}", archive_rule.name, e) }
+                })?;
+
+            while let Some(download_item) = download_stream.next().await {
+                let bytes = match download_item {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        return Err(BuildRuntimeError { msg: format!("Download error {}", format_docker_api_error(e)) });
+                    }
+                };
+
+                f.write_all(&bytes)
+                    .map_err(|e| {
+                        BuildRuntimeError { msg: format!("Failed to write to archive {}, due to {}", archive_rule.name, e) }
+                    })?;
+            }
+
+            Ok(())
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn execute_command_internal(&mut self, agent_id: &str, shell_config: &ShellConfig, command: &str) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
             let exec_id = docker.create_exec(agent_id, CreateExecOptions {
-                cmd: Some(vec!["/bin/sh", "-c", command]),
+                cmd: Some(vec![shell_config.executable.as_str(), "-c", command]),
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
                 attach_stdin: Some(true),
@@ -524,8 +560,12 @@ impl BuildRuntime for DockerRuntime {
         Ok(name.clone())
     }
 
-    async fn execute_command(&mut self, agent_id: &str, command: &str) -> Result<(), BuildRuntimeError> {
-        self.execute_command_internal(agent_id, command).await
+    async fn execute_command(&mut self, agent_id: &str, shell_config: &ShellConfig, command: &str) -> Result<(), BuildRuntimeError> {
+        self.execute_command_internal(agent_id, shell_config, command).await
+    }
+
+    async fn get_archive(&mut self, agent_id: &str, archive_rule: &ArchiveRule) -> Result<(), BuildRuntimeError> {
+        self.get_archive_internal(agent_id, archive_rule).await
     }
 
     async fn destroy_agent(&mut self, agent_id: &str) -> Result<(), BuildRuntimeError> {

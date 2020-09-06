@@ -33,11 +33,29 @@ pub struct CacheRule {
 pub struct Step {
     pub name: String,
 
+    pub shell: Option<ShellConfig>,
+
     pub command: String,
 
     pub agent: Option<String>,
 
     pub secrets: Option<Vec<String>>,
+
+    pub archives: Option<Vec<ArchiveRule>>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShellConfig {
+    pub executable: String,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveRule {
+    pub name: String,
+
+    pub location: String,
+
+    pub output: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

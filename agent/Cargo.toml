@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "agent-sdk",
+    "agent-worker",
+    "plugins/hello-world-plugin"
+]

@@ -1,7 +1,6 @@
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use serde::{Serialize, Deserialize};
-use jsonrpc_core::futures::future::Future;
 
 pub mod error;
 pub mod server;

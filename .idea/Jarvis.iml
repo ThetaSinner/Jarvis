@@ -11,6 +11,7 @@
       <excludeFolder url="file://$MODULE_DIR$/agent/agent-sdk/target" />
       <excludeFolder url="file://$MODULE_DIR$/agent/agent-worker/target" />
       <excludeFolder url="file://$MODULE_DIR$/agent/plugins/hello-world-plugin/target" />
+      <excludeFolder url="file://$MODULE_DIR$/agent/target" />
       <excludeFolder url="file://$MODULE_DIR$/jarvis-cli/target" />
       <excludeFolder url="file://$MODULE_DIR$/jarvis-core/target" />
     </content>

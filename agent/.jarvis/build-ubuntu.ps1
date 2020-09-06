@@ -1,0 +1,1 @@
+docker buildx build -t agent-ubuntu:latest -f ubuntu.Dockerfile .

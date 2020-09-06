@@ -1,0 +1,24 @@
+api_version: 0.1
+modules:
+  - name: sample-app
+    path: .
+    agents:
+      - name: golang
+        default: true
+        image: golang:latest
+      - name: ubuntu
+        image: agent-ubuntu:latest
+    steps:
+      - name: build
+        agent: ubuntu
+        shell:
+          executable: /bin/bash
+        command: >
+          HOST_ARCH=$(rustc --version --verbose | grep 'host: ') && [ "${HOST_ARCH:6}" == "x86_64-unknown-linux-gnu" ] && echo "Building for expected target" && cargo build
+        archives:
+          - name: agent-worker
+            location: /build/workspace/target/debug/agent-worker
+            output: agent-worker-x86_64-unknown-linux-gnu.tgz
+          - name: hello-world-plugin
+            location: /build/workspace/target/debug/hello-world-plugin
+            output: hello-world-plugin-x86_64-unknown-linux-gnu.tgz

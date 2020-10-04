@@ -4,7 +4,7 @@ use bollard::Docker;
 use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions, ListVolumesOptions};
 use async_trait::async_trait;
 
-use crate::config::{Agent, ProjectConfig, CacheRule, ArchiveRule, ShellConfig};
+use crate::config::{Agent, ProjectConfig, CacheRule, ArchiveRule, ShellConfig, PluginSpecification};
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions, DownloadFromContainerOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
@@ -493,6 +493,119 @@ impl DockerRuntime {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
     }
+
+    async fn ensure_plugin_disk(&self) -> Result<String, BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let mut labels = HashMap::new();
+            labels.insert("created-by".to_string(), "jarvis".to_string());
+            labels.insert("used-for".to_string(), "plugins".to_string());
+
+            let label_list = labels.iter().map(|x| format!("{}={}", x.0, x.1)).collect();
+
+            let mut filters= HashMap::new();
+            filters.insert("label".to_string(), label_list);
+
+            let matches = docker.list_volumes(Some(ListVolumesOptions { filters })).await
+                .map_err(|e| BuildRuntimeError { msg : format!("Failed to list volumes {}", format_docker_api_error(e)) })?;
+
+            if matches.warnings.len() > 0 {
+                for warning in &matches.warnings {
+                    println!("Warning during list volumes: {}", warning);
+                }
+            }
+            let matches_count = matches.volumes.len();
+
+            if matches_count == 1 {
+                // This is what we want, a single disk which matches the filter.
+                return Ok(matches.volumes.get(0).unwrap().name.clone())
+            }
+            else if matches_count == 0 {
+                let create_result = docker.create_volume(CreateVolumeOptions {
+                    name: "jarvis-plugins".to_string(),
+                    labels,
+                    ..Default::default()
+                }).await;
+
+                Ok(create_result.map(|x| {
+                    x.name
+                }).map_err(|e| {
+                    BuildRuntimeError { msg : format!("Failed to create plugin volume {}", format_docker_api_error(e)) }
+                })?)
+            } else {
+                Err(BuildRuntimeError { msg : format!("Multiple plugin volumes found. Please remove unwanted disks until only 1 of {} remains", matches_count) })
+            }
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
+
+    async fn sync_plugins(&mut self, source_directory: String, target_disk: String) -> Result<String, BuildRuntimeError> {
+        if let Some(ref docker) = self.docker {
+            let id: String = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(30)
+                .collect();
+
+            let mut labels = HashMap::new();
+            labels.insert("created-by".to_string(), "jarvis".to_string());
+            labels.insert("used-for".to_string(), "plugin-sync".to_string());
+
+            let mounts = vec![Mount {
+                target: Some("/plugins".to_string()),
+                source: Some(target_disk),
+                typ: Some(MountTypeEnum::VOLUME),
+                ..Default::default()
+            },  Mount {
+                target: Some("/input".to_string()),
+                source: Some(source_directory),
+                typ: Some(MountTypeEnum::BIND),
+                ..Default::default()
+            }];
+
+            let command_config = vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect();
+
+            let image = "alpine:latest";
+            let image_available = self.image_available(image).await?;
+            if !image_available {
+                self.pull_image(image).await?;
+            }
+
+            let container_result = docker.create_container(Some(CreateContainerOptions { name: id.clone() }), Config {
+                image: Some(image.to_string()),
+                entrypoint: Some(command_config),
+                cmd: Some(vec![]),
+                attach_stdin: Some(true),
+                attach_stderr: Some(true),
+                attach_stdout: Some(true),
+                labels: Some(labels),
+                working_dir: Some("/input".to_string()),
+                host_config: Some(HostConfig {
+                    mounts: Some(mounts),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }).await;
+
+            let container = container_result.map(|x| {
+                for warning in x.warnings {
+                    println!("docker container create warning: {}", warning);
+                }
+                x.id
+            }).map_err(|e| BuildRuntimeError { msg: format!("Failed to create plugin sync container: {}", format_docker_api_error(e)) })?;
+
+            self.start_container(container.as_str()).await?;
+
+            let shell_config = ShellConfig {
+                executable: "/bin/sh".to_string()
+            };
+
+            self.execute_command_internal(container.as_str(), &shell_config, "cp -pR . /plugins").await?;
+
+            Ok(id.clone())
+        } else {
+            Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
+        }
+    }
 }
 
 #[async_trait]
@@ -610,6 +723,21 @@ impl BuildRuntime for DockerRuntime {
 
         Ok(())
     }
+
+    async fn ensure_plugins_loaded(&mut self, plugins: Vec<&PluginSpecification>) -> Result<(), BuildRuntimeError> {
+        // TODO do not unwrap me
+        let agent_home = std::env::var("JARVIS_AGENT_HOME").unwrap();
+
+        let plugin_disk_name = self.ensure_plugin_disk().await?;
+
+        // TODO use the input plugins to ensure that the sync actually captures the correct plugins.
+
+        let container_id = self.sync_plugins(agent_home, plugin_disk_name).await?;
+
+        println!("plugin sync container {}", container_id);
+
+        Ok(())
+    }
 }
 
 fn configure_secrets(jarvis_directory: &PathBuf, secrets: &Option<Vec<String>>) -> Result<Vec<(String, String, String)>, BuildRuntimeError> {
@@ -650,6 +778,8 @@ fn to_environment_variable_name(source: &str) -> String {
 }
 
 fn format_docker_api_error(e: bollard::errors::Error) -> String {
+    // TDOO remove and replace with proper handling below.
+    println!("{:?}", e);
     match e {
         _ => "Driver error".to_string()
     }

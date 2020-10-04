@@ -1,6 +1,6 @@
 use crate::runtime::{BuildRuntime, BuildRuntimeError};
 use async_trait::async_trait;
-use crate::config::{Agent, ProjectConfig, ArchiveRule, ShellConfig};
+use crate::config::{Agent, ProjectConfig, ArchiveRule, ShellConfig, PluginSpecification};
 
 pub struct KubernetesRuntime {
 
@@ -37,6 +37,10 @@ impl BuildRuntime for KubernetesRuntime {
     }
 
     async fn cleanup_resources(&self) -> Result<(), BuildRuntimeError> {
+        unimplemented!()
+    }
+
+    async fn ensure_plugins_loaded(&mut self, _plugins: Vec<&PluginSpecification>) -> Result<(), BuildRuntimeError> {
         unimplemented!()
     }
 }

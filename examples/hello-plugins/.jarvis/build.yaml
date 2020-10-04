@@ -1,0 +1,15 @@
+api_version: 0.1
+project_id: jarvis-examples-hello-plugins
+modules:
+  - name: hello-plugins
+    path: .
+    agents:
+      - name: build
+        image: ubuntu:latest
+    steps:
+      - name: build
+        agent: build
+        command: echo "I'm the build command"
+        plugins:
+          - name: hello-world-plugin
+            version: 0.0.0-dev

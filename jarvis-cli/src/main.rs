@@ -8,7 +8,7 @@ use futures::future::Ready;
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
-use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter, cleanup_resources};
+use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter, cleanup_resources, init_project};
 use crate::cli_output_formatter::CliOutputFormatter;
 
 #[derive(StructOpt)]
@@ -24,6 +24,15 @@ enum SubCommands {
         #[structopt(long, parse(from_os_str))]
         /// The project to use
         project: Option<std::path::PathBuf>
+    },
+
+    Init {
+        #[structopt(long, parse(from_os_str))]
+        /// The project to use
+        project: Option<std::path::PathBuf>,
+
+        #[structopt(long, default_value = "")]
+        runtime: RuntimeOption,
     },
 
     Build {
@@ -55,7 +64,15 @@ fn main() {
                 None => current_dir().unwrap()
             };
             exit_code = validate(project_dir);
-        }
+        },
+        SubCommands::Init { project, runtime} => {
+            let cli_output_formatter = Box::new(CliOutputFormatter {});
+            let project_dir = match project {
+                Some(project) => project,
+                None => current_dir().unwrap()
+            };
+            exit_code = block_on(rt.block_on(init(project_dir, runtime, cli_output_formatter))).unwrap();
+        },
         SubCommands::Build { project, runtime } => {
             let cli_output_formatter = Box::new(CliOutputFormatter {});
             let project_dir = match project {
@@ -94,6 +111,21 @@ fn validate(project: std::path::PathBuf) -> i32 {
     } else {
         println!("{} {}", gh_emoji::get("-1").unwrap(), validation_result.err().unwrap().to_string().bright_red());
         1
+    }
+}
+
+async fn init(project: std::path::PathBuf, runtime: RuntimeOption, output_formatter: Box<dyn OutputFormatter>) -> Ready<Result<i32, ()>> {
+    let result = init_project(project, runtime, &output_formatter).await;
+
+    match result {
+        Ok(_) => {
+            output_formatter.success("Project init succeeded".to_string());
+            futures::future::ok(1)
+        },
+        Err(e) => {
+            output_formatter.error(format!("Project init failed: {}", e));
+            futures::future::ok(0)
+        }
     }
 }
 

@@ -6,10 +6,12 @@ use futures_util::core_reexport::fmt::Formatter;
 use std::fmt;
 use crate::build::BuildError;
 use crate::cleanup::CleanupError;
+use crate::init::InitError;
 
 mod runtime;
 mod validate;
 pub mod config;
+mod init;
 mod build;
 mod cleanup;
 
@@ -21,6 +23,16 @@ pub trait OutputFormatter {
     fn error(&self, msg: String);
 
     fn background(&self, msg: String);
+}
+
+pub async fn init_project(project_path: std::path::PathBuf, runtime: RuntimeOption, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), InitError> {
+    let runtime: Box<dyn BuildRuntime> = match runtime {
+        RuntimeOption::Docker => Box::new(DockerRuntime::new() ),
+        RuntimeOption::Kubernetes => Box::new(KubernetesRuntime {}),
+        RuntimeOption::None => Box::new(DockerRuntime::new() )
+    };
+
+    init::init_project(project_path, runtime, output_formatter).await
 }
 
 pub async fn build_project(project_path: std::path::PathBuf, runtime: RuntimeOption, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), BuildError> {

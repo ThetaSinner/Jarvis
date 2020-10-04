@@ -42,12 +42,23 @@ pub struct Step {
     pub secrets: Option<Vec<String>>,
 
     pub archives: Option<Vec<ArchiveRule>>,
+
+    pub plugins: Option<Vec<PluginSpecification>>
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellConfig {
     pub executable: String,
 }
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct PluginSpecification {
+    pub name: String,
+
+    // Will be optional for managed versions but not useful now.
+    pub version: String,
+}
+
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArchiveRule {
@@ -72,6 +83,8 @@ pub struct Module {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct BuildConfig {
     pub api_version: f32,
+
+    pub project_id: String,
 
     pub modules: Vec<Module>,
 }

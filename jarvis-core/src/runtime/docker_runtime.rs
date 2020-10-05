@@ -350,7 +350,7 @@ impl DockerRuntime {
         }
     }
 
-    async fn execute_command_internal(&mut self, agent_id: &str, shell_config: &ShellConfig, command: &str) -> Result<(), BuildRuntimeError> {
+    async fn execute_command_internal(&mut self, agent_id: &str, shell_config: &ShellConfig, working_directory: &str, command: &str) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
             let exec_id = docker.create_exec(agent_id, CreateExecOptions {
                 cmd: Some(vec![shell_config.executable.as_str(), "-c", command]),
@@ -358,7 +358,7 @@ impl DockerRuntime {
                 attach_stderr: Some(true),
                 attach_stdin: Some(true),
                 tty: Some(true),
-                working_dir: Some("/build/workspace"),
+                working_dir: Some(working_directory),
                 ..Default::default()
             }).await
                 .map(|exec| exec.id)
@@ -599,7 +599,9 @@ impl DockerRuntime {
                 executable: "/bin/sh".to_string()
             };
 
-            self.execute_command_internal(container.as_str(), &shell_config, "cp -pR . /plugins").await?;
+            self.execute_command_internal(container.as_str(), &shell_config, "/input", "cp -pR . /plugins").await?;
+
+            self.delete_container(container.as_str()).await?;
 
             Ok(id.clone())
         } else {
@@ -674,7 +676,7 @@ impl BuildRuntime for DockerRuntime {
     }
 
     async fn execute_command(&mut self, agent_id: &str, shell_config: &ShellConfig, command: &str) -> Result<(), BuildRuntimeError> {
-        self.execute_command_internal(agent_id, shell_config, command).await
+        self.execute_command_internal(agent_id, shell_config, "/build/workspace", command).await
     }
 
     async fn get_archive(&mut self, agent_id: &str, archive_rule: &ArchiveRule) -> Result<(), BuildRuntimeError> {

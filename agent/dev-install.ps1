@@ -10,12 +10,10 @@ Function Install-JarvisBinary($BaseDirectory, $TargetArchitecture, $Source, $Nam
 
         New-Item -ItemType Directory -Path $binaryDirectory -Force
 
-        $binaryPath = Join-Path -Path $binaryDirectory -ChildPath $Name
-
-        tar -xOvzf $Source | Set-Content -Path $binaryPath
+        tar -xvf $Source -C $binaryDirectory
     }
 }
 
-Install-JarvisBinary -BaseDirectory $jarvisDirectory -TargetArchitecture $linuxArch -Source "agent-worker-x86_64-unknown-linux-gnu.tgz" -Name "agent-worker"
+Install-JarvisBinary -BaseDirectory $jarvisDirectory -TargetArchitecture $linuxArch -Source "agent-worker-x86_64-unknown-linux-gnu.tar" -Name "agent-worker"
 
-Install-JarvisBinary -BaseDirectory $pluginsDirectory -TargetArchitecture $linuxArch -Source "hello-world-plugin-x86_64-unknown-linux-gnu.tgz" -Name "hello-world-plugin"
+Install-JarvisBinary -BaseDirectory $pluginsDirectory -TargetArchitecture $linuxArch -Source "hello-world-plugin-x86_64-unknown-linux-gnu.tar" -Name "hello-world-plugin"

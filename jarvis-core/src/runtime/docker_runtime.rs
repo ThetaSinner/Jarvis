@@ -599,7 +599,7 @@ impl DockerRuntime {
                 executable: "/bin/sh".to_string()
             };
 
-            self.execute_command_internal(container.as_str(), &shell_config, "/input", "cp -pR . /plugins").await?;
+            self.execute_command_internal(container.as_str(), &shell_config, "/input", "cp -pR agent-worker agent-plugins /plugins").await?;
 
             self.delete_container(container.as_str()).await?;
 

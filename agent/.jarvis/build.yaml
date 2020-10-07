@@ -1,4 +1,5 @@
 api_version: 0.1
+project_id: jarvis_agent
 modules:
   - name: sample-app
     path: .
@@ -18,7 +19,7 @@ modules:
         archives:
           - name: agent-worker
             location: /build/workspace/target/debug/agent-worker
-            output: agent-worker-x86_64-unknown-linux-gnu.tgz
+            output: agent-worker-x86_64-unknown-linux-gnu.tar
           - name: hello-world-plugin
             location: /build/workspace/target/debug/hello-world-plugin
-            output: hello-world-plugin-x86_64-unknown-linux-gnu.tgz
+            output: hello-world-plugin-x86_64-unknown-linux-gnu.tar

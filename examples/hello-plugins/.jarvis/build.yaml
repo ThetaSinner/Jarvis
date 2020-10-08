@@ -9,7 +9,7 @@ modules:
     steps:
       - name: build
         agent: build
-        command: echo "I'm the build command"
+        command: echo "I'm the build command" && ls /build/agent/
         plugins:
           - name: hello-world-plugin
             version: 0.0.0-dev

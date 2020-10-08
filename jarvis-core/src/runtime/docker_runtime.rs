@@ -4,7 +4,7 @@ use bollard::Docker;
 use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions, ListVolumesOptions};
 use async_trait::async_trait;
 
-use crate::config::{Agent, ProjectConfig, CacheRule, ArchiveRule, ShellConfig, PluginSpecification};
+use crate::config::{Agent, ProjectConfig, CacheRule, ArchiveRule, ShellConfig, PluginSpecification, Step};
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, UploadToContainerOptions, RemoveContainerOptions, ListContainersOptions, DownloadFromContainerOptions};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
@@ -12,7 +12,7 @@ use bollard::image::{CreateImageOptions, ListImagesOptions};
 use tokio::stream::StreamExt;
 use std::{io, env};
 use std::io::{Write, Read};
-use bollard::models::{HostConfig, Mount, MountTypeEnum};
+use bollard::models::{HostConfig, Mount, MountTypeEnum, PortMap, PortBinding};
 use std::path::PathBuf;
 use std::fs::File;
 use flate2::write::GzEncoder;
@@ -166,7 +166,8 @@ impl DockerRuntime {
                               module_component: &str,
                               name: &str,
                               agent: &Agent,
-                              secrets_config: Vec<(String, String, String)>
+                              secrets_config: Vec<(String, String, String)>,
+                              using_plugins: bool
     ) -> Result<String, BuildRuntimeError> {
         let mut environment: Option<Vec<String>> = None;
         if let Some(ref env) = agent.environment {
@@ -217,6 +218,15 @@ impl DockerRuntime {
                 }
             }
 
+            if using_plugins {
+                mounts.push(Mount {
+                    target: Some("/build/agent".to_string()),
+                    source: Some("jarvis-plugins".to_string()),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    ..Default::default()
+                });
+            }
+
             let mut user_config = None;
             let mut privileged = false;
             if let Some(container) = &agent.container {
@@ -233,6 +243,21 @@ impl DockerRuntime {
 
             let command_config = vec!["/bin/sh", "-c", "tail -f /dev/null"].iter().map(|x| x.to_string()).collect();
 
+            let port_config = if using_plugins {
+                let mut ports = HashMap::new();
+                ports.insert("1438/tcp".to_string(), HashMap::new());
+
+                let mut port_bindings = HashMap::new() as PortMap;
+                port_bindings.insert("1438/tcp".to_string(), Some(vec![PortBinding {
+                    host_ip: Some("127.0.0.1".to_string()),
+                    host_port: Some("1438".to_string())
+                }]));
+
+                (Some(ports), Some(port_bindings))
+            } else {
+                (None, None)
+            };
+
             let container_result = docker.create_container(Some(CreateContainerOptions { name }), Config {
                 image: Some(agent.image.clone()),
                 entrypoint: Some(command_config),
@@ -245,9 +270,11 @@ impl DockerRuntime {
                 labels: Some(labels),
                 working_dir: Some("/build/workspace".to_string()),
                 user: user_config,
+                exposed_ports: port_config.0,
                 host_config: Some(HostConfig {
                     mounts: Some(mounts),
                     privileged: Some(privileged),
+                    port_bindings: port_config.1,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -322,7 +349,7 @@ impl DockerRuntime {
 
             let output_file_name = match &archive_rule.output {
                 Some(output) => output.clone(),
-                None => format!("{}.tgz", archive_rule.name)
+                None => format!("{}.tar", archive_rule.name)
             };
 
             let mut f = File::create(output_file_name)
@@ -539,7 +566,7 @@ impl DockerRuntime {
         }
     }
 
-    async fn sync_plugins(&mut self, source_directory: String, target_disk: String) -> Result<String, BuildRuntimeError> {
+    async fn sync_plugins(&mut self, source_directory: String, target_disk: String) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
             let id: String = thread_rng()
                 .sample_iter(&Alphanumeric)
@@ -603,7 +630,7 @@ impl DockerRuntime {
 
             self.delete_container(container.as_str()).await?;
 
-            Ok(id.clone())
+            Ok(())
         } else {
             Err(BuildRuntimeError { msg: "Runtime has not been initialised".to_string() })
         }
@@ -643,14 +670,14 @@ impl BuildRuntime for DockerRuntime {
             environment: None,
             cache: None,
             container: None,
-        }, &None::<Vec<String>>).await?;
+        }, None).await?;
 
         self.upload_project(init_agent.as_str(), &project_config.project_directory).await?;
 
         self.delete_container(init_agent.as_str()).await
     }
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent, secrets: &Option<Vec<String>>) -> Result<String, BuildRuntimeError> {
+    async fn create_agent(&mut self, module_name: &String, agent: &Agent, step: Option<&Step>) -> Result<String, BuildRuntimeError> {
         let id: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
@@ -661,9 +688,19 @@ impl BuildRuntime for DockerRuntime {
             self.pull_image(agent.image.as_str()).await?;
         }
 
+        let secrets = match &step {
+            Some(step) => &step.secrets,
+            None => &None
+        };
+
+        let using_plugins = match &step {
+            Some(step) => step.plugins.is_some(),
+            None => false
+        };
+
         let secrets_config = configure_secrets(&self.module_components.get(module_name).unwrap().jarvis_directory, secrets)?;
 
-        self.create_container(module_name, name.as_str(), agent, secrets_config).await
+        self.create_container(module_name, name.as_str(), agent, secrets_config, using_plugins).await
             .map(|x| {
                 let component: &mut Box<ModuleComponents> = self.module_components.get_mut(module_name).unwrap();
                 component.containers.insert(agent.name.clone(), x);
@@ -726,7 +763,7 @@ impl BuildRuntime for DockerRuntime {
         Ok(())
     }
 
-    async fn ensure_plugins_loaded(&mut self, plugins: Vec<&PluginSpecification>) -> Result<(), BuildRuntimeError> {
+    async fn ensure_plugins_loaded(&mut self, _plugins: Vec<&PluginSpecification>) -> Result<(), BuildRuntimeError> {
         // TODO do not unwrap me
         let agent_home = std::env::var("JARVIS_AGENT_HOME").unwrap();
 
@@ -734,9 +771,7 @@ impl BuildRuntime for DockerRuntime {
 
         // TODO use the input plugins to ensure that the sync actually captures the correct plugins.
 
-        let container_id = self.sync_plugins(agent_home, plugin_disk_name).await?;
-
-        println!("plugin sync container {}", container_id);
+        self.sync_plugins(agent_home, plugin_disk_name).await?;
 
         Ok(())
     }

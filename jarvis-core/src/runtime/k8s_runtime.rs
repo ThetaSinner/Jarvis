@@ -1,6 +1,6 @@
 use crate::runtime::{BuildRuntime, BuildRuntimeError};
 use async_trait::async_trait;
-use crate::config::{Agent, ProjectConfig, ArchiveRule, ShellConfig, PluginSpecification};
+use crate::config::{Agent, ProjectConfig, ArchiveRule, ShellConfig, PluginSpecification, Step};
 
 pub struct KubernetesRuntime {
 
@@ -16,7 +16,7 @@ impl BuildRuntime for KubernetesRuntime {
         unimplemented!()
     }
 
-    async fn create_agent(&mut self, _module_name: &String, _agent: &Agent, _secrets: &Option<Vec<String>>) -> Result<String, BuildRuntimeError> {
+    async fn create_agent(&mut self, _module_name: &String, _agent: &Agent, _step: Option<&Step>) -> Result<String, BuildRuntimeError> {
         unimplemented!()
     }
 

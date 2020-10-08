@@ -2,7 +2,7 @@ use std::fmt::Formatter;
 use std::fmt;
 use std::error::Error;
 use async_trait::async_trait;
-use crate::config::{Agent, ProjectConfig, ArchiveRule, ShellConfig, PluginSpecification};
+use crate::config::{Agent, ProjectConfig, ArchiveRule, ShellConfig, PluginSpecification, Step};
 
 pub mod docker_runtime;
 pub mod k8s_runtime;
@@ -13,7 +13,7 @@ pub trait BuildRuntime {
 
     async fn init_for_module(&mut self, module_name: &String, project_config: &ProjectConfig) -> Result<(), BuildRuntimeError>;
 
-    async fn create_agent(&mut self, module_name: &String, agent: &Agent, secrets: &Option<Vec<String>>) -> Result<String, BuildRuntimeError>;
+    async fn create_agent(&mut self, module_name: &String, agent: &Agent, step: Option<&Step>) -> Result<String, BuildRuntimeError>;
 
     async fn execute_command(&mut self, agent_id: &str, shell_config: &ShellConfig, command: &str) -> Result<(), BuildRuntimeError>;
 

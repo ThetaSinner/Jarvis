@@ -60,12 +60,19 @@ async fn main() {
         .or(finalize);
 
     warp::serve(routes)
-        .run(([127, 0, 0, 1], 30311))
+        .run(([0, 0, 0, 0], 1438))
         .await
 }
 
 async fn initialise_agent(agent_initialization: AgentInitialization, plugin_executions: PluginExecutions) -> Result<impl warp::Reply, Infallible> {
     let agent_home = std::env::var("JARVIS_AGENT_HOME").unwrap();
+
+    let current_arch = match std::env::var("ARCH") {
+        Ok(arch) => arch,
+        Err(_e) => return Ok(warp::reply::with_status("Variable ARCH not set, cannot determine architecture to use", StatusCode::INTERNAL_SERVER_ERROR))
+    };
+
+    println!("Using architecture {}", current_arch);
 
     let mut path = PathBuf::new();
     path.push(agent_home);
@@ -73,11 +80,17 @@ async fn initialise_agent(agent_initialization: AgentInitialization, plugin_exec
     if let Some(plugins) = &agent_initialization.plugins {
         for plugin in plugins {
             let mut plugin_path = path.clone();
+            plugin_path.push("agent-plugins");
+            // TODO allows path escape
             plugin_path.push(plugin.name.as_str());
             plugin_path.push(plugin.version.as_str());
-            plugin_path.push(format!("{}.exe", plugin.name));
+            plugin_path.push(current_arch.as_str());
+            let ext = if current_arch.contains("windows") {
+                ".exe"
+            } else { "" };
+            plugin_path.push(format!("{}{}", plugin.name, ext));
 
-            println!("Plugin found? {}", plugin_path.exists());
+            println!("Plugin found at [{}]? {}", plugin_path.to_str().unwrap_or("invalid path"), plugin_path.exists());
 
             let handle = std::process::Command::new(plugin_path)
                 .stdout(Stdio::piped())

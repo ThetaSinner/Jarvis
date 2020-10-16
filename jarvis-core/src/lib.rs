@@ -1,12 +1,14 @@
+use std::fmt;
+
+use futures_util::core_reexport::fmt::Formatter;
+
+use crate::build::BuildError;
+use crate::cleanup::CleanupError;
 use crate::config::ConfigError;
+use crate::init::InitError;
 use crate::runtime::BuildRuntime;
 use crate::runtime::docker_runtime::DockerRuntime;
 use crate::runtime::k8s_runtime::KubernetesRuntime;
-use futures_util::core_reexport::fmt::Formatter;
-use std::fmt;
-use crate::build::BuildError;
-use crate::cleanup::CleanupError;
-use crate::init::InitError;
 
 mod runtime;
 mod validate;
@@ -23,6 +25,10 @@ pub trait OutputFormatter {
     fn error(&self, msg: String);
 
     fn background(&self, msg: String);
+}
+
+pub async fn core_test() -> Result<(), BuildError> {
+    build::core_test().await
 }
 
 pub async fn init_project(project_path: std::path::PathBuf, runtime: RuntimeOption, output_formatter: &Box<dyn OutputFormatter>) -> Result<(), InitError> {

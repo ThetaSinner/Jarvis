@@ -1,7 +1,7 @@
 api_version: 0.1
 project_id: jarvis_agent
 modules:
-  - name: sample-app
+  - name: agent_binaries
     path: .
     agents:
       - name: golang

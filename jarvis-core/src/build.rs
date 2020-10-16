@@ -5,6 +5,76 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::error::Error;
 use crate::OutputFormatter;
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
+pub struct AgentInitialization {
+    pub plugins: Option<Vec<PluginSpec>>
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct PluginSpec {
+    pub name: String,
+
+    pub version: String,
+}
+
+pub async fn core_test() -> Result<(), BuildError> {
+    let new_post = AgentInitialization {
+        plugins: Some(vec![PluginSpec {
+            name: "hello-world-plugin".to_string(),
+            version: "0.0.0-dev".to_string()
+        }])
+    };
+    let res = reqwest::Client::new()
+        .post("http://localhost:1438/plugins")
+        .json(&new_post)
+        .send()
+        .await
+        .map_err(|e| {
+            BuildError { msg: format!("Failed to configure plugins {}", e) }
+        })?
+        .status();
+
+    println!("configure plugins: [{}]", res);
+
+    let resp = reqwest::get("http://localhost:1438/inspect")
+        .await
+        .map_err(|e| {
+            BuildError { msg: format!("Failed to inspect {}", e) }
+        })?
+        .json::<Vec<String>>()
+        .await
+        .map_err(|e| {
+            BuildError { msg: format!("Failed to get inspect response {}", e) }
+        })?;
+
+    println!("active plugins {}", resp.len());
+
+    let init_res = reqwest::Client::new()
+        .post("http://localhost:1438/initialize")
+        .send()
+        .await
+        .map_err(|e| {
+            BuildError { msg: format!("Failed to initialize plugins {}", e) }
+        })?
+        .status();
+
+    println!("initialize plugins: [{}]", init_res);
+
+    let fina_res = reqwest::Client::new()
+        .post("http://localhost:1438/finalize")
+        .send()
+        .await
+        .map_err(|e| {
+            BuildError { msg: format!("Failed to finalize plugins {}", e) }
+        })?
+        .status();
+
+    println!("finalize plugins: [{}]", fina_res);
+
+    Ok(())
+}
 
 struct BuildAgentConfig<'a> {
     agents: HashMap<String, &'a Agent>,
@@ -100,6 +170,8 @@ async fn run_step<'a>(step: &Step, module_name:&String, agent_config: &'a BuildA
         Some(s) => s.clone(),
         None => &shell_default
     };
+
+    core_test().await?;
 
     let command_result = runtime.execute_command(agent_id.as_str(), shell_config, &step.command).await
         .map_err(|e| run_step_error(step.name.as_str(), e));

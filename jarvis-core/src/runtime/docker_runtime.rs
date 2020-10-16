@@ -175,6 +175,12 @@ impl DockerRuntime {
             environment = Some(env_list);
         }
 
+        if let Some(env) = &mut environment {
+            env.push(format!("{}={}", "JARVIS_AGENT_HOME", "/build/agent/"))
+        } else {
+            environment = Some(vec![format!("{}={}", "JARVIS_AGENT_HOME", "/build/agent/")])
+        }
+
         if let Some(ref docker) = self.docker {
             let time = Utc::now().to_rfc3339();
             let mut labels = HashMap::new();
@@ -377,7 +383,7 @@ impl DockerRuntime {
         }
     }
 
-    async fn execute_command_internal(&mut self, agent_id: &str, shell_config: &ShellConfig, working_directory: &str, command: &str) -> Result<(), BuildRuntimeError> {
+    async fn execute_command_internal(&mut self, agent_id: &str, shell_config: &ShellConfig, working_directory: &str, command: &str, detach: bool) -> Result<(), BuildRuntimeError> {
         if let Some(ref docker) = self.docker {
             let exec_id = docker.create_exec(agent_id, CreateExecOptions {
                 cmd: Some(vec![shell_config.executable.as_str(), "-c", command]),
@@ -392,7 +398,9 @@ impl DockerRuntime {
                 .map_err(|e| BuildRuntimeError { msg: format!("Failed to create exec: {}", format_docker_api_error(e)) })
                 ?;
 
-            let mut exec = docker.start_exec(&exec_id, None::<StartExecOptions>);
+            let mut exec = docker.start_exec(&exec_id, Some(StartExecOptions {
+                detach
+            }));
 
             while let Some(exec_result) = exec.next().await {
                 match exec_result {
@@ -402,7 +410,6 @@ impl DockerRuntime {
                                 print!("{}", log);
                             }
                             StartExecResults::Detached => {
-                                println!("Not attached");
                                 // Do nothing
                             }
                         }
@@ -418,6 +425,18 @@ impl DockerRuntime {
                     BuildRuntimeError { msg: format!("Failed to check command status {}", format_docker_api_error(e)) }
                 })
                 .and_then(|result| {
+                    if detach {
+                        if let Some(running) = result.running {
+                            if !running {
+                                return Err(BuildRuntimeError { msg: "Command has exited.".to_string() });
+                            }
+                        } else {
+                            return Err(BuildRuntimeError { msg: "Command status is not available.".to_string() });
+                        }
+
+                        return Ok(())
+                    }
+
                     if let Some(running) = result.running {
                         if running {
                             return Err(BuildRuntimeError { msg: "Command has not exited.".to_string() });
@@ -429,6 +448,8 @@ impl DockerRuntime {
                     if result.exit_code != Some(0) {
                         return Err(BuildRuntimeError { msg: format!("Command has non-zero exit status [{}]", result.exit_code.unwrap()) });
                     }
+
+                    println!("command ran successfully");
 
                     Ok(())
                 })
@@ -626,7 +647,7 @@ impl DockerRuntime {
                 executable: "/bin/sh".to_string()
             };
 
-            self.execute_command_internal(container.as_str(), &shell_config, "/input", "cp -pR agent-worker agent-plugins /plugins").await?;
+            self.execute_command_internal(container.as_str(), &shell_config, "/input", "cp -pR agent-worker agent-plugins bin /plugins", false).await?;
 
             self.delete_container(container.as_str()).await?;
 
@@ -707,13 +728,22 @@ impl BuildRuntime for DockerRuntime {
                 ()
             })?;
 
-        self.start_container(self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().as_str()).await?;
+        let container_id = self.module_components.get(module_name).unwrap().containers.get(agent.name.as_str()).unwrap().clone();
+        self.start_container(container_id.as_str()).await?;
+
+        if step.is_some() && step.unwrap().plugins.is_some() {
+            let shell_config = ShellConfig {
+                executable: "/bin/sh".to_string()
+            };
+            println!("Executing agent commant");
+            self.execute_command_internal(container_id.as_str(), &shell_config, "/", "chmod 500 /build/agent/bin/detect_arch.sh && . /build/agent/bin/detect_arch.sh && /build/agent/agent-worker/0.0.0-dev/$ARCH/agent-worker", true).await?;
+        }
 
         Ok(name.clone())
     }
 
     async fn execute_command(&mut self, agent_id: &str, shell_config: &ShellConfig, command: &str) -> Result<(), BuildRuntimeError> {
-        self.execute_command_internal(agent_id, shell_config, "/build/workspace", command).await
+        self.execute_command_internal(agent_id, shell_config, "/build/workspace", command, false).await
     }
 
     async fn get_archive(&mut self, agent_id: &str, archive_rule: &ArchiveRule) -> Result<(), BuildRuntimeError> {

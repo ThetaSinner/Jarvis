@@ -8,7 +8,7 @@ use futures::future::Ready;
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
-use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter, cleanup_resources, init_project};
+use jarvis_core::{build_project, RuntimeOption, validate_project, OutputFormatter, cleanup_resources, init_project, core_test};
 use crate::cli_output_formatter::CliOutputFormatter;
 
 #[derive(StructOpt)]
@@ -47,7 +47,9 @@ enum SubCommands {
     Cleanup {
         #[structopt(long, default_value = "")]
         runtime: RuntimeOption,
-    }
+    },
+
+    Test {},
 }
 
 fn main() {
@@ -64,15 +66,15 @@ fn main() {
                 None => current_dir().unwrap()
             };
             exit_code = validate(project_dir);
-        },
-        SubCommands::Init { project, runtime} => {
+        }
+        SubCommands::Init { project, runtime } => {
             let cli_output_formatter = Box::new(CliOutputFormatter {});
             let project_dir = match project {
                 Some(project) => project,
                 None => current_dir().unwrap()
             };
             exit_code = block_on(rt.block_on(init(project_dir, runtime, cli_output_formatter))).unwrap();
-        },
+        }
         SubCommands::Build { project, runtime } => {
             let cli_output_formatter = Box::new(CliOutputFormatter {});
             let project_dir = match project {
@@ -80,10 +82,14 @@ fn main() {
                 None => current_dir().unwrap()
             };
             exit_code = block_on(rt.block_on(build(project_dir, runtime, cli_output_formatter))).unwrap();
-        },
+        }
         SubCommands::Cleanup { runtime } => {
             let cli_output_formatter = Box::new(CliOutputFormatter {});
             exit_code = block_on(rt.block_on(cleanup(runtime, cli_output_formatter))).unwrap();
+        }
+        SubCommands::Test {} => {
+            let cli_output_formatter = Box::new(CliOutputFormatter {});
+            exit_code = block_on(rt.block_on(test(cli_output_formatter))).unwrap();
         }
     }
 
@@ -121,7 +127,7 @@ async fn init(project: std::path::PathBuf, runtime: RuntimeOption, output_format
         Ok(_) => {
             output_formatter.success("Project init succeeded".to_string());
             futures::future::ok(1)
-        },
+        }
         Err(e) => {
             output_formatter.error(format!("Project init failed: {}", e));
             futures::future::ok(0)
@@ -136,7 +142,7 @@ async fn build(project: std::path::PathBuf, runtime: RuntimeOption, output_forma
         Ok(_) => {
             output_formatter.success("Project build succeeded".to_string());
             futures::future::ok(1)
-        },
+        }
         Err(e) => {
             output_formatter.error(format!("Project build failed: {}", e));
             futures::future::ok(0)
@@ -151,9 +157,24 @@ async fn cleanup(runtime: RuntimeOption, output_formatter: Box<dyn OutputFormatt
         Ok(_) => {
             output_formatter.success("Cleanup succeeded".to_string());
             futures::future::ok(1)
-        },
+        }
         Err(e) => {
             output_formatter.error(format!("Cleanup failed: {}", e));
+            futures::future::ok(0)
+        }
+    }
+}
+
+async fn test(output_formatter: Box<dyn OutputFormatter>) -> Ready<Result<i32, ()>> {
+    let result = core_test().await;
+
+    match result {
+        Ok(_) => {
+            output_formatter.success("Test succeeded".to_string());
+            futures::future::ok(1)
+        }
+        Err(e) => {
+            output_formatter.error(format!("Test failed: {}", e));
             futures::future::ok(0)
         }
     }

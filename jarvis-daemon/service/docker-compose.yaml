@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  db:
+    image: library/postgres:13-alpine
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - daemon
+    environment:
+      POSTGRES_DB: jarvis-daemon
+      POSTGRES_USER: daemon
+      POSTGRES_PASSWORD: daemon
+    ports:
+    - 54320:5432
+
+networks:
+  daemon:
+
+volumes:
+  db-data:
